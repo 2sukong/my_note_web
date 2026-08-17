@@ -1,0 +1,458 @@
+/* Phase 8: 스타일 옵션 사이드바. 기존 canvas-toolbar/canvas-hud와 같은 "둥근 모서리 +
+   반투명 흰 배경 + 옅은 그림자" 언어를 따르되, 타일 버튼의 선택색만 참고 이미지에
+   맞춰 라벤더 계열(#6952e8)을 새로 쓴다 — 나머지 툴바/HUD의 파란 강조색(#4f8cff)은
+   그대로 둔다(서로 다른 UI 영역이라 섞이지 않는다). */
+
+.properties-panel {
+  position: fixed;
+  top: 64px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.properties-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #ececec;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+
+.properties-panel-close {
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.properties-panel-close:hover {
+  background: #f0f0f0;
+  color: #444;
+}
+
+.properties-panel-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* Phase 8(부분 서식): 텍스트 편집 중 드래그로 구간을 선택했을 때, 이 패널의 컨트롤이
+   객체 전체가 아니라 그 구간에만 적용된다는 걸 알려주는 작은 안내문. */
+.properties-range-hint {
+  margin: 0;
+  font-size: 11px;
+  color: #6952e8;
+  background: #f1eefd;
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.properties-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.properties-row-label {
+  flex: 0 0 56px;
+  font-size: 12px;
+  color: #777;
+}
+
+.properties-row-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+/* 타일 버튼: 화살촉/모서리/선 스타일/끝처리/채우기/굵기/굵게 전부 공유. */
+.properties-tile {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  border: none;
+  background: #f5f5f5;
+  color: #555;
+  cursor: pointer;
+  padding: 0;
+}
+
+.properties-tile:hover {
+  background: #ececec;
+}
+
+.properties-tile.is-active {
+  background: #e4defb;
+  color: #6952e8;
+}
+
+/* 프레임 크기 프리셋처럼 폭이 가변적인 텍스트 버튼. properties-tile과 같은 톤이지만
+   30px 정사각형이 아니라 라벨 길이만큼 늘어난다. */
+.properties-preset-btn {
+  font-size: 11px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: none;
+  background: #f5f5f5;
+  color: #555;
+  cursor: pointer;
+}
+
+.properties-preset-btn:hover {
+  background: #ececec;
+}
+
+.properties-preset-btn.is-active {
+  background: #e4defb;
+  color: #6952e8;
+}
+
+.properties-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #333;
+}
+
+.properties-add-font-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px dashed #c9c9c9;
+  background: #fff;
+  color: #888;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.properties-add-font-btn:hover {
+  border-color: #6952e8;
+  color: #6952e8;
+}
+
+/* 줄 간격 등 숫자 조절용 −/입력/+ 스테퍼. 타일 버튼과 select 인풋의 크기/모서리/색을
+   그대로 물려받아 나머지 컨트롤과 톤을 맞춘다. */
+.properties-number-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.properties-stepper-btn {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: none;
+  background: #f5f5f5;
+  color: #555;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.properties-stepper-btn:hover:not(:disabled) {
+  background: #e4defb;
+  color: #6952e8;
+}
+
+.properties-stepper-btn:disabled {
+  color: #ccc;
+  cursor: default;
+}
+
+.properties-stepper-input {
+  width: 44px;
+  min-width: 0;
+  font-size: 12px;
+  text-align: center;
+  padding: 4px 2px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #333;
+  /* 브라우저 기본 number 스피너를 감춘다 — 우리 −/+ 버튼이 그 역할을 대신한다. */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.properties-stepper-input::-webkit-outer-spin-button,
+.properties-stepper-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.properties-range {
+  flex: 1;
+  accent-color: #6952e8;
+}
+
+.properties-range-value {
+  font-size: 11px;
+  color: #888;
+  width: 32px;
+  text-align: right;
+}
+
+/* 요구사항(텍스트 기본값 저장): '제목값으로 저장'/'본문값으로 저장' 버튼 두 개를
+   나란히 두는 행. properties-color-add-recent-btn과 같은 점선 테두리 톤을 쓰되,
+   두 버튼이 패널 폭을 나눠 갖도록 flex:1을 준다. */
+.properties-save-preset-row {
+  display: flex;
+  gap: 6px;
+}
+
+.properties-save-preset-btn {
+  flex: 1;
+  font-size: 11px;
+  padding: 7px 6px;
+  border-radius: 6px;
+  border: 1px dashed #c9c9c9;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+}
+
+.properties-save-preset-btn:hover {
+  border-color: #6952e8;
+  color: #6952e8;
+}
+
+/* 요구사항(자주 사용하는 색상 위치 통합): 색상을 갖는 모든 사이드바 섹션의 마지막
+   줄 — 라벨이 다른 행들(2~4자)보다 길어서 라벨을 위에, 스와치를 그 아래 줄에 둔다
+   (properties-row의 좌측 고정폭 라벨 배치와 다름). */
+.properties-recent-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.properties-recent-label {
+  font-size: 12px;
+  color: #777;
+}
+
+.properties-recent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.properties-round-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+}
+
+.properties-round-swatch.is-active {
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+}
+
+/* 색상 선택기(ColorPickerPopover). 팝오버 자체는 document.body에 portal로 렌더링되고
+   position:fixed로 배치된다(조상의 overflow:hidden/auto에 잘리지 않도록, 버그 수정
+   노트는 ColorPickerPopover.tsx 참고) — 여기서는 크기/여백만 정의한다. */
+.properties-color-trigger {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+}
+
+.properties-color-popover {
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  width: 200px;
+  box-sizing: border-box;
+  font-family: system-ui, sans-serif;
+}
+
+/* 스펙트럼(채도/명도 사각형) + 색조 슬라이더가 스크롤 없이 한 번에 다 보이도록
+   충분한 높이를 준다 — 기존 140px는 팝오버 폭(180px)보다 좁게 잘려 보이는
+   문제가 있었다(요구사항 1번 버그). */
+.properties-color-popover .react-colorful {
+  width: 100%;
+  height: 180px;
+}
+
+.properties-color-popover .react-colorful__saturation {
+  border-radius: 6px;
+}
+
+.properties-color-popover .react-colorful__hue {
+  height: 16px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.properties-color-hex-input {
+  font-size: 12px;
+  padding: 5px 7px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  font-family: ui-monospace, monospace;
+  text-transform: lowercase;
+}
+
+/* 요구사항(색상 관리 통합): 자주 쓰는 색상은 이 버튼을 명시적으로 눌러야만
+   저장된다 — 색상 선택 자체만으로는 절대 자동 추가되지 않는다. */
+.properties-color-add-recent-btn {
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px dashed #c9c9c9;
+  background: #fff;
+  color: #666;
+  cursor: pointer;
+}
+
+.properties-color-add-recent-btn:hover {
+  border-color: #6952e8;
+  color: #6952e8;
+}
+
+.properties-color-recent {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.properties-color-recent-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  padding: 0;
+}
+
+/* 글꼴 목록 관리 팝오버(FontManagerPopover). ColorPickerPopover와 동일하게
+   document.body에 portal로 렌더링되고 position:fixed로 배치된다. */
+.font-manager-popover {
+  z-index: 10000;
+  width: 220px;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  font-family: system-ui, sans-serif;
+}
+
+.font-manager-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #444;
+  padding: 2px 4px 6px;
+}
+
+.font-manager-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.font-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #333;
+}
+
+.font-manager-item:hover {
+  background: #f5f5f5;
+}
+
+.font-manager-item.is-current {
+  background: #f1eefd;
+  color: #6952e8;
+}
+
+.font-manager-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.font-manager-remove {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #999;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.font-manager-remove:hover:not(:disabled) {
+  background: #ffe2e2;
+  color: #d33;
+}
+
+.font-manager-remove:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.font-manager-empty {
+  font-size: 12px;
+  color: #999;
+  padding: 6px;
+  text-align: center;
+}

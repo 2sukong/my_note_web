@@ -1,0 +1,223 @@
+.canvas-root {
+  position: fixed;
+  /* Phase 8: 왼쪽에 파일 트리 사이드바가 고정으로 붙으면서 canvas-root는 더 이상 화면
+     전체(inset:0)를 쓰지 않고 사이드바 오른쪽부터 시작한다. 사이드바를 접고 펴면
+     fileTreeUiStore.ts가 --file-tree-width를 바꿔주므로 여기서도 같은 값을 그대로
+     따라간다(240px을 여기 따로 하드코딩하지 않음). */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--file-tree-width, 240px);
+  transition: left 0.15s ease;
+  overflow: hidden;
+  /* Excalidraw 스타일: 깨끗한 흰 배경 + 아주 연한 점 그리드(선 그리드보다 시각적으로 가볍다). */
+  background-color: #ffffff;
+  background-image: radial-gradient(circle, #e4e4e4 1px, transparent 1px);
+  touch-action: none;
+  user-select: none;
+}
+
+.canvas-world {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  width: 0;
+  height: 0;
+}
+
+/* 요구사항(형광펜 실시간 드래그): 형광펜 도구로 드래그하는 동안에는 브라우저
+   네이티브 파란 선택 음영 대신 HighlightDragPreview.tsx가 실시간으로 실제 형광펜
+   색을 그린다 — canvas/interaction/useTextSelectionTools.ts가 드래그 시작~끝에만
+   document.body에 이 클래스를 켰다 끈다(항상 켜져 있지 않으므로 텍스트 편집 중
+   부분 서식 선택 등 다른 네이티브 selection에는 영향이 없다). */
+.highlight-dragging ::selection {
+  background: transparent;
+}
+
+.canvas-placeholder-box {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #8a8a7a;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.7);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  color: #444;
+}
+
+.canvas-hud {
+  position: fixed;
+  top: 12px;
+  /* Phase 8: 사이드바(240px) 오른쪽에서부터 기존과 같은 12px 여백. */
+  left: 252px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  color: #333;
+}
+
+.canvas-hud button {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+}
+
+.canvas-hud-hint {
+  color: #888;
+  font-size: 11px;
+}
+
+.canvas-toolbar {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, sans-serif;
+  max-width: calc(100vw - 24px);
+}
+
+.canvas-toolbar-btn {
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  color: #444;
+}
+
+.canvas-toolbar-btn.is-active {
+  border-color: #4f8cff;
+  background: #eaf1ff;
+  color: #1a56db;
+}
+
+.canvas-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: #ddd;
+}
+
+.canvas-toolbar-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.canvas-toolbar-swatch {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  padding: 0;
+}
+
+.canvas-toolbar-swatch.is-active {
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+}
+
+/* 요구사항(텍스트 기본값 저장): '텍스트' 버튼에 마우스를 올리면 '제목'/'본문' 저장
+   프리셋을 바로 적용할 수 있는 작은 메뉴가 뜬다. 버튼과 메뉴 사이에 틈이 있으면
+   그 틈을 지나는 동안 hover가 풀려 메뉴가 닫혀버리므로(top: 100%로 버튼 바로
+   아래에 맞닿게 둔다 — 별도 margin을 주지 않는다). */
+.canvas-toolbar-text-menu {
+  position: relative;
+}
+
+.canvas-toolbar-text-flyout {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  flex-direction: column;
+  min-width: 64px;
+  padding: 4px;
+  gap: 2px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 20;
+}
+
+.canvas-toolbar-text-menu:hover .canvas-toolbar-text-flyout {
+  display: flex;
+}
+
+.canvas-toolbar-text-flyout-item {
+  font-size: 12px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #444;
+  text-align: left;
+  cursor: pointer;
+}
+
+.canvas-toolbar-text-flyout-item:hover:not(:disabled) {
+  background: #eaf1ff;
+  color: #1a56db;
+}
+
+.canvas-toolbar-text-flyout-item:disabled {
+  color: #bbb;
+  cursor: not-allowed;
+}
+
+/* 요구사항(우클릭 쌓임 순서 메뉴): canvas/sidebar/FileTreePanel.css의
+   .file-tree-context-menu와 같은 톤 — 캔버스 chrome(툴바/HUD)의 언어를 따른다. */
+.object-context-menu {
+  position: fixed;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #ddd;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  font-family: system-ui, sans-serif;
+}
+
+.object-context-menu button {
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+
+.object-context-menu button:hover {
+  background: #f0efe8;
+}
