@@ -48,6 +48,16 @@ interface FileTreeUiState {
 
   isCollapsed: boolean;
   toggleCollapsed: () => void;
+
+  /** 요구사항(찾기): 사이드바 검색창에 입력한 문자열 — 파일/페이지 이름을 이걸로
+   * 필터링한다(FileTreePanel.tsx). 저장하지 않는다(세션 한정 UI 상태). */
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+
+  /** 요구사항(휴지통): 휴지통 패널을 열지 여부. */
+  isTrashOpen: boolean;
+  openTrash: () => void;
+  closeTrash: () => void;
 }
 
 export const useFileTreeUiStore = create<FileTreeUiState>((set, get) => ({
@@ -85,4 +95,11 @@ export const useFileTreeUiStore = create<FileTreeUiState>((set, get) => ({
       // 유지되는 것으로 조용히 넘어간다(치명적이지 않음).
     }
   },
+
+  searchQuery: '',
+  setSearchQuery: (query) => set({ searchQuery: query }),
+
+  isTrashOpen: false,
+  openTrash: () => set({ isTrashOpen: true }),
+  closeTrash: () => set({ isTrashOpen: false }),
 }));

@@ -63,6 +63,10 @@ export function SelectionOverlay() {
         // 비율 기준 — 과거에 Shift로 자유 리사이즈해 비율을 바꿔놨어도 그 상태를 존중한다).
         const aspectRatio =
           object.type === 'image' && object.aspectRatioLocked ? box.width / box.height : undefined;
+        // 요구사항(객체 잠금): 잠긴 객체는 리사이즈 핸들 자체를 그리지 않는다 —
+        // 이동/삭제와 마찬가지로 크기조절도 막혀야 하므로, 핸들이 아예 없으면
+        // useObjectResize 쪽에 별도 가드를 두지 않아도 자연히 막힌다.
+        const showHandlesForThis = showHandles && !object.locked;
 
         return (
           <div
@@ -78,7 +82,7 @@ export function SelectionOverlay() {
               zIndex: 9999, // 객체 zIndex와 무관하게 선택 오버레이는 항상 최상단
             }}
           >
-            {showHandles &&
+            {showHandlesForThis &&
               handleList.map((handle) => (
                 <ResizeHandleDot
                   key={handle}
@@ -90,7 +94,7 @@ export function SelectionOverlay() {
                   aspectRatio={aspectRatio}
                 />
               ))}
-            {showHandles && object.type === 'arrow' && (
+            {showHandlesForThis && object.type === 'arrow' && (
               <ArrowCurveHandleDot
                 objectId={object.id}
                 object={object}

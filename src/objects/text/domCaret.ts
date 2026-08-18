@@ -98,6 +98,43 @@ export function rangeForOffsets(lineEl: HTMLElement, start: number, end: number)
   return range;
 }
 
+/**
+ * 요구사항(형광펜이 음절 사이에서 끊겨 보이는 문제): 복잡한 스크립트(한글 등)를
+ * 렌더링할 때, 시각적으로 하나로 이어진 한 줄 구간인데도 브라우저가
+ * range.getClientRects()에서 그 줄을 여러 개의 작은 rect로 쪼개 돌려주는 경우가
+ * 있다(문자 셰이핑/폰트 폴백 경계 등). 하이라이트/드래그 미리보기는 각 rect를 알약
+ * 모양(borderRadius: height/2)으로 그리는데, 쪼개진 rect를 그대로 그리면 그 경계마다
+ * 둥근 모서리가 겹쳐 마치 음절 사이가 끊긴 것처럼 보인다.
+ *
+ * 세로 범위가 겹치는(=같은 줄) rect들을 하나의 bounding box로 합쳐서, 실제 줄바꿈이
+ * 있을 때만(여러 줄에 걸친 하이라이트) 여러 rect로 남고, 한 줄 안에서는 항상 하나의
+ * 연속된 rect가 되게 한다. TextObjectView.tsx(커밋된 하이라이트)와
+ * HighlightDragPreview.tsx(드래그 중 미리보기) 둘 다 이 함수를 거쳐서 그린다.
+ */
+export function mergeClientRectsByLine(rectList: DOMRectList): DOMRect[] {
+  const rects = Array.from(rectList).filter((r) => r.width > 0 && r.height > 0);
+  if (rects.length <= 1) return rects;
+
+  rects.sort((a, b) => a.top - b.top || a.left - b.left);
+
+  const merged: DOMRect[] = [];
+  for (const r of rects) {
+    const last = merged[merged.length - 1];
+    const overlapThreshold = Math.min(last?.height ?? 0, r.height) * 0.4;
+    const sameLine = last ? r.top < last.bottom - overlapThreshold && r.bottom > last.top + overlapThreshold : false;
+    if (last && sameLine) {
+      const left = Math.min(last.left, r.left);
+      const top = Math.min(last.top, r.top);
+      const right = Math.max(last.right, r.right);
+      const bottom = Math.max(last.bottom, r.bottom);
+      merged[merged.length - 1] = new DOMRect(left, top, right - left, bottom - top);
+    } else {
+      merged.push(new DOMRect(r.left, r.top, r.width, r.height));
+    }
+  }
+  return merged;
+}
+
 /** lineEl에 포커스를 주고 커서를 flat offset 위치로 이동시킨다. */
 export function focusLineAt(lineEl: HTMLElement, offset: number): void {
   lineEl.focus();

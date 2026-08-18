@@ -15,7 +15,7 @@ export function SaveStatusIndicator() {
     <span
       style={{
         fontSize: 12,
-        color: status === 'error' ? '#c0392b' : '#8a8a7a',
+        color: status === 'error' ? '#c0392b' : '#8a8a8a',
         userSelect: 'none',
       }}
     >

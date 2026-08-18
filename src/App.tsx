@@ -34,7 +34,7 @@ function App() {
             alignItems: 'center',
             justifyContent: 'center',
             fontFamily: 'system-ui, sans-serif',
-            color: '#888',
+            color: '#9a9a9a',
             fontSize: 14,
           }}
         >

@@ -79,10 +79,21 @@ export function useObjectDrag(objectId: string) {
 
     const ids = useInteractionStore.getState().selectedIds;
     const objects = useObjectsStore.getState().objects;
-    const startPositions: Record<string, { x: number; y: number }> = {};
+    // 요구사항(Ctrl+G 그룹화, "가벼운 그룹"): 선택된 객체가 그룹에 속해 있으면 같은
+    // groupId를 가진 나머지 멤버도 함께 이동 대상에 포함시킨다 — 클릭으로는 이
+    // 객체 하나만 선택됐어도, 실제로 옮길 때는 그룹 전체가 같이 움직여야 한다.
+    // 그룹이 없으면 getGroupMemberIds가 [id] 하나만 돌려주므로 기존 동작과 같다.
+    const expandedIds = new Set<string>();
     for (const id of ids) {
+      for (const memberId of useObjectsStore.getState().getGroupMemberIds(id)) {
+        expandedIds.add(memberId);
+      }
+    }
+    const startPositions: Record<string, { x: number; y: number }> = {};
+    for (const id of expandedIds) {
       const o = objects[id];
-      if (o) startPositions[id] = { x: o.x, y: o.y };
+      // 요구사항(객체 잠금): 잠긴 객체는 이동 대상에서 제외한다(선택 자체는 유지된다).
+      if (o && !o.locked) startPositions[id] = { x: o.x, y: o.y };
     }
 
     dragRef.current = {

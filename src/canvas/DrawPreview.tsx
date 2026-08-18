@@ -40,7 +40,7 @@ export function DrawPreview() {
           width: box.width,
           height: box.height,
           background: 'rgba(255,255,255,0.7)',
-          border: textBorderEnabled ? '1px solid #d8d6c9' : 'none',
+          border: textBorderEnabled ? '1px solid #d9d9d9' : 'none',
           borderRadius: 4,
           pointerEvents: 'none',
         }}

@@ -83,9 +83,13 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
         ? 'text'
         : isSpacePressed
           ? 'inherit'
-          : isFrame || isDrawPassthrough
-            ? 'default'
-            : 'move',
+          // 요구사항(객체 잠금): 잠긴 객체는 이동할 수 없다는 걸 커서로도 알려준다
+          // (선택 자체는 여전히 가능하므로 pointer-events는 그대로 둔다).
+          : object.locked
+            ? 'not-allowed'
+            : isFrame || isDrawPassthrough
+              ? 'default'
+              : 'move',
     touchAction: 'none',
   };
 
@@ -103,7 +107,16 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   };
 
   return (
-    <div className="canvas-object" style={style} onContextMenu={handleContextMenu} {...(skipDrag ? {} : drag)}>
+    <div
+      className="canvas-object"
+      // 요구사항(내보내기): canvas/actions.ts의 exportFrame이 "이 프레임 영역과 겹치는
+      // 객체만" 골라내는 데 쓴다(html-to-image filter). 렌더링/인터랙션에는 전혀
+      // 관여하지 않는 순수 식별용 속성이다.
+      data-object-id={object.id}
+      style={style}
+      onContextMenu={handleContextMenu}
+      {...(skipDrag ? {} : drag)}
+    >
       {renderContent(object)}
     </div>
   );

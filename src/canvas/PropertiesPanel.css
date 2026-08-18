@@ -1,20 +1,21 @@
-/* Phase 8: 스타일 옵션 사이드바. 기존 canvas-toolbar/canvas-hud와 같은 "둥근 모서리 +
-   반투명 흰 배경 + 옅은 그림자" 언어를 따르되, 타일 버튼의 선택색만 참고 이미지에
-   맞춰 라벤더 계열(#6952e8)을 새로 쓴다 — 나머지 툴바/HUD의 파란 강조색(#4f8cff)은
-   그대로 둔다(서로 다른 UI 영역이라 섞이지 않는다). */
+/* 스타일 옵션 사이드바. 왼쪽 파일 트리 사이드바(FileTreePanel.css)와 같은 디자인
+   언어(화이트 배경 + 연한 그레이 테두리 + 절제된 그림자)를 쓴다. 타일/선택 상태는
+   보라색 강조 대신 흰 배경 + 짙은 회색 테두리(또는 아주 연한 그레이 채움)로 표현한다. */
 
 .properties-panel {
   position: fixed;
-  top: 64px;
+  top: 12px;
   right: 12px;
   bottom: 12px;
   z-index: 10;
   width: 240px;
   display: flex;
   flex-direction: column;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  /* 요구사항: 오른쪽 사이드바 모서리는 둥글지 않게(직각). */
+  border-radius: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
   font-family: system-ui, sans-serif;
   overflow: hidden;
 }
@@ -22,28 +23,11 @@
 .properties-panel-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   padding: 10px 12px;
-  border-bottom: 1px solid #ececec;
-  font-size: 13px;
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-md);
   font-weight: 600;
-  color: #333;
-}
-
-.properties-panel-close {
-  border: none;
-  background: none;
-  font-size: 16px;
-  line-height: 1;
-  color: #999;
-  cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
-}
-
-.properties-panel-close:hover {
-  background: #f0f0f0;
-  color: #444;
+  color: var(--color-text);
 }
 
 .properties-panel-body {
@@ -58,112 +42,220 @@
    객체 전체가 아니라 그 구간에만 적용된다는 걸 알려주는 작은 안내문. */
 .properties-range-hint {
   margin: 0;
-  font-size: 11px;
-  color: #6952e8;
-  background: #f1eefd;
-  border-radius: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-text);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-sm);
   padding: 5px 8px;
 }
 
+/* 요구사항: 라벨은 왼쪽, 나머지 컨트롤(아이콘/숫자 등)은 모두 오른쪽 끝에 붙는다. */
 .properties-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
 .properties-row-label {
-  flex: 0 0 56px;
-  font-size: 12px;
-  color: #777;
+  /* 고정폭 대신 최소폭만 두고 내용 길이에 맞춰 늘어나게 한다 — "텍스트 색상"/
+     "테두리 색상"처럼 4자를 넘는 라벨도 줄바꿈 없이 한 줄로 표시된다. */
+  flex: 0 0 auto;
+  min-width: 44px;
+  white-space: nowrap;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
 .properties-row-control {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 5px;
   flex-wrap: wrap;
 }
 
-/* 타일 버튼: 화살촉/모서리/선 스타일/끝처리/채우기/굵기/굵게 전부 공유. */
+/* 타일 버튼: 화살촉/모서리/선 스타일/끝처리/채우기/굵기/굵게 전부 공유. 테두리
+   대신 아주 연한 회색 채움으로 쉬는 상태를 표현하고, 선택 상태는 흰 배경 +
+   아주 옅은 그림자로 "떠 보이는" 느낌만 준다(진한 테두리로 박스처럼 보이지
+   않도록). */
 .properties-tile {
   width: 30px;
   height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: none;
-  background: #f5f5f5;
-  color: #555;
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
   cursor: pointer;
   padding: 0;
 }
 
 .properties-tile:hover {
-  background: #ececec;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 .properties-tile.is-active {
-  background: #e4defb;
-  color: #6952e8;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+/* 요구사항: 한 속성에 선택 가능한 옵션이 여럿(화살촉/선 스타일/모서리/채우기/굵기/
+   배경/A4 절반)일 때는 그 타일들을 하나의 회색 트랙 안에 담는다. 구분선이나
+   테두리로 옵션끼리 나누지 않고, 옅은 간격만으로 자연스럽게 떨어져 보이게 한다 —
+   선택된 타일만 흰 사각형으로 뚜렷하게 "떠 보이도록" 표현한다(참고 이미지와 동일한
+   관례). 단독 토글 타일(굵게/테두리/방향 전환 등)은 이 그룹 없이 기존
+   .properties-tile 스타일(회색 채움)을 그대로 쓴다. */
+.properties-tile-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+}
+
+.properties-tile-group .properties-tile {
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+}
+
+.properties-tile-group .properties-tile:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.properties-tile-group .properties-tile.is-active {
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* 프레임 크기 프리셋처럼 폭이 가변적인 텍스트 버튼. properties-tile과 같은 톤이지만
    30px 정사각형이 아니라 라벨 길이만큼 늘어난다. */
 .properties-preset-btn {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 6px 9px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: none;
-  background: #f5f5f5;
-  color: #555;
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .properties-preset-btn:hover {
-  background: #ececec;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 .properties-preset-btn.is-active {
-  background: #e4defb;
-  color: #6952e8;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .properties-select {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   padding: 5px 6px;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-  background: #fff;
-  color: #333;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-fill);
+  color: var(--color-text);
 }
 
-.properties-add-font-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1px dashed #c9c9c9;
-  background: #fff;
-  color: #888;
-  font-size: 15px;
-  line-height: 1;
+.properties-select:hover {
+  background: var(--color-fill-hover);
+}
+
+/* 요구사항(둥근 카드 드롭다운): 브라우저 기본 <select>의 옵션 목록은 CSS로 모양을
+   바꿀 수 없다(네이티브 팝업) — 텍스트/주석 "크기"처럼 둥근 카드 모양이 필요한
+   자리는 Dropdown(직접 만든 트리거+목록)으로 대체한다. 트리거는 기존
+   .properties-select와 같은 톤을 쓰고, 펼쳐지는 목록만 여기서 새로 정의한다. */
+.properties-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
   cursor: pointer;
+}
+
+.properties-dropdown-trigger svg {
   flex: 0 0 auto;
+  color: var(--color-text-muted);
 }
 
-.properties-add-font-btn:hover {
-  border-color: #6952e8;
-  color: #6952e8;
+/* 요구사항: 스크롤 없이 항상 둥근 사각형 카드 하나로 — 목록 길이만큼 카드 자체가
+   늘어난다(내부 스크롤을 두지 않는다). */
+.properties-dropdown-list {
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+  font-family: system-ui, sans-serif;
 }
 
-/* 줄 간격 등 숫자 조절용 −/입력/+ 스테퍼. 타일 버튼과 select 인풋의 크기/모서리/색을
-   그대로 물려받아 나머지 컨트롤과 톤을 맞춘다. */
+.properties-dropdown-item {
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.properties-dropdown-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.properties-dropdown-item.is-active {
+  background: var(--color-accent-soft);
+  font-weight: 600;
+}
+
+/* 요구사항(폰트 드롭다운): 폰트 파일을 추가하는 항목 — 목록 맨 아래, 위쪽에 얇은
+   구분선을 둬서 "폰트 하나를 고르는" 나머지 항목들과는 다른 동작(파일 선택 열기)
+   이라는 걸 구분한다. 삭제는 각 폰트 항목을 우클릭하는 것으로 대체한다(별도
+   버튼/팝오버 없음). */
+.properties-dropdown-add-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-align: left;
+  padding: 6px 8px;
+  margin-top: 3px;
+  padding-top: 7px;
+  border: none;
+  border-top: 1px solid var(--color-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.properties-dropdown-add-item:hover {
+  color: var(--color-text);
+}
+
+/* 줄 간격/프레임 폭·높이 등 숫자 조절용 −/입력/+ 스테퍼. 요구사항: 셋을 각각 따로
+   된 회색 알약으로 두지 않고, 하나의 큰 회색 카드 안에 이어붙인다. */
 .properties-number-stepper {
   display: flex;
   align-items: center;
-  gap: 4px;
+  background: var(--color-fill);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
 }
 
 .properties-stepper-btn {
@@ -173,10 +265,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 0;
   border: none;
-  background: #f5f5f5;
-  color: #555;
+  background: transparent;
+  color: var(--color-text-secondary);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -184,25 +276,25 @@
 }
 
 .properties-stepper-btn:hover:not(:disabled) {
-  background: #e4defb;
-  color: #6952e8;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 .properties-stepper-btn:disabled {
-  color: #ccc;
+  color: var(--color-text-muted);
   cursor: default;
 }
 
 .properties-stepper-input {
   width: 44px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   text-align: center;
   padding: 4px 2px;
-  border-radius: 6px;
-  border: 1px solid #ddd;
-  background: #fff;
-  color: #333;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
   /* 브라우저 기본 number 스피너를 감춘다 — 우리 −/+ 버튼이 그 역할을 대신한다. */
   -moz-appearance: textfield;
   appearance: textfield;
@@ -214,14 +306,55 @@
   margin: 0;
 }
 
+/* 요구사항(투명도 슬라이더 개선): 두껍고 무거운 브라우저 기본 슬라이더 대신,
+   가는 트랙(3px) + 작고 가벼운 원형 손잡이로 다시 그린다. 크로스 브라우저용으로
+   -webkit/-moz 트랙·손잡이 의사요소를 각각 정의한다. */
 .properties-range {
   flex: 1;
-  accent-color: #6952e8;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.properties-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-fill);
+}
+
+.properties-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1.5px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.properties-range::-moz-range-track {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-fill);
+}
+
+.properties-range::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1.5px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .properties-range-value {
-  font-size: 11px;
-  color: #888;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
   width: 32px;
   text-align: right;
 }
@@ -236,18 +369,18 @@
 
 .properties-save-preset-btn {
   flex: 1;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 7px 6px;
-  border-radius: 6px;
-  border: 1px dashed #c9c9c9;
-  background: #fff;
-  color: #666;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .properties-save-preset-btn:hover {
-  border-color: #6952e8;
-  color: #6952e8;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 /* 요구사항(자주 사용하는 색상 위치 통합): 색상을 갖는 모든 사이드바 섹션의 마지막
@@ -260,39 +393,48 @@
 }
 
 .properties-recent-label {
-  font-size: 12px;
-  color: #777;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
 }
 
+/* 요구사항: 자주 사용하는 색상의 실제 색상 원들은 왼쪽 정렬로 둔다(라벨 줄과
+   달리 이 줄만은 예외 — 나머지 행의 "라벨 왼쪽/컨트롤 오른쪽" 규칙과 무관하게
+   색상칩 자체는 항상 왼쪽부터 채운다). */
 .properties-recent-swatches {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 10.2px;
 }
 
 .properties-round-swatch {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  /* 요구사항: 검정 테두리 대신 라이트 그레이 테두리만 — 흰색 등 밝은 색이
+     배경에 묻히지 않을 정도의 최소 경계선. */
+  border: 1.5px solid var(--color-border-strong);
   cursor: pointer;
   padding: 0;
 }
 
+/* 요구사항: 선택된 색상 표시를 진한 검정 테두리 대신 얇은 라이트 그레이 테두리로. */
 .properties-round-swatch.is-active {
-  border-color: #333;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+  border-color: var(--color-border-strong);
+  box-shadow: 0 0 0 2px var(--color-surface), 0 0 0 3px var(--color-border-strong);
 }
 
 /* 색상 선택기(ColorPickerPopover). 팝오버 자체는 document.body에 portal로 렌더링되고
    position:fixed로 배치된다(조상의 overflow:hidden/auto에 잘리지 않도록, 버그 수정
    노트는 ColorPickerPopover.tsx 참고) — 여기서는 크기/여백만 정의한다. */
+/* 요구사항: 색상 트리거를 "자주 사용하는 색상"과 같은 원형으로 통일하되 크기는
+   그대로 두고(26px), 검정 테두리 대신 라이트 그레이 테두리만 쓴다. */
 .properties-color-trigger {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  border: 1.5px solid rgba(0, 0, 0, 0.15);
+  border-radius: 50%;
+  border: 1.5px solid var(--color-border-strong);
   cursor: pointer;
   padding: 0;
 }
@@ -303,9 +445,10 @@
   flex-direction: column;
   gap: 8px;
   padding: 10px;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
   width: 200px;
   box-sizing: border-box;
   font-family: system-ui, sans-serif;
@@ -330,10 +473,12 @@
 }
 
 .properties-color-hex-input {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   padding: 5px 7px;
-  border-radius: 6px;
-  border: 1px solid #ddd;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-fill);
+  color: var(--color-text);
   font-family: ui-monospace, monospace;
   text-transform: lowercase;
 }
@@ -341,18 +486,18 @@
 /* 요구사항(색상 관리 통합): 자주 쓰는 색상은 이 버튼을 명시적으로 눌러야만
    저장된다 — 색상 선택 자체만으로는 절대 자동 추가되지 않는다. */
 .properties-color-add-recent-btn {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px dashed #c9c9c9;
-  background: #fff;
-  color: #666;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-fill);
+  color: var(--color-text-secondary);
   cursor: pointer;
 }
 
 .properties-color-add-recent-btn:hover {
-  border-color: #6952e8;
-  color: #6952e8;
+  background: var(--color-fill-hover);
+  color: var(--color-text);
 }
 
 .properties-color-recent {
@@ -365,94 +510,8 @@
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
+  border: 1px solid var(--color-border-strong);
   cursor: pointer;
   padding: 0;
 }
 
-/* 글꼴 목록 관리 팝오버(FontManagerPopover). ColorPickerPopover와 동일하게
-   document.body에 portal로 렌더링되고 position:fixed로 배치된다. */
-.font-manager-popover {
-  z-index: 10000;
-  width: 220px;
-  box-sizing: border-box;
-  padding: 8px;
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  font-family: system-ui, sans-serif;
-}
-
-.font-manager-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: #444;
-  padding: 2px 4px 6px;
-}
-
-.font-manager-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.font-manager-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 5px 6px;
-  border-radius: 6px;
-  font-size: 12px;
-  color: #333;
-}
-
-.font-manager-item:hover {
-  background: #f5f5f5;
-}
-
-.font-manager-item.is-current {
-  background: #f1eefd;
-  color: #6952e8;
-}
-
-.font-manager-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.font-manager-remove {
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  color: #999;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.font-manager-remove:hover:not(:disabled) {
-  background: #ffe2e2;
-  color: #d33;
-}
-
-.font-manager-remove:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.font-manager-empty {
-  font-size: 12px;
-  color: #999;
-  padding: 6px;
-  text-align: center;
-}

@@ -2,7 +2,7 @@ import { useLayoutEffect, useState } from 'react';
 import { useHighlightDragStore } from '../store/highlightDragStore';
 import { useToolStore } from '../store/toolStore';
 import { useViewportStore } from '../store/viewportStore';
-import { rangeForOffsets } from '../objects/text/domCaret';
+import { mergeClientRectsByLine, rangeForOffsets } from '../objects/text/domCaret';
 import { highlightBackgroundFor } from '../objects/text/highlightColors';
 import { clientToWorld } from '../utils/coords';
 
@@ -72,7 +72,7 @@ export function HighlightDragPreview() {
       if (end <= start) continue;
       const range = rangeForOffsets(lineEl, start, end);
       if (!range) continue;
-      const clientRects = range.getClientRects();
+      const clientRects = mergeClientRectsByLine(range.getClientRects());
       for (let i = 0; i < clientRects.length; i++) {
         const r = clientRects[i];
         if (r.width <= 0 || r.height <= 0) continue;
@@ -95,7 +95,7 @@ export function HighlightDragPreview() {
       const end = Math.max(0, Math.min(annotationSegment.end, textLen));
       const range = el && end > start ? rangeForOffsets(el, start, end) : null;
       if (range) {
-        const clientRects = range.getClientRects();
+        const clientRects = mergeClientRectsByLine(range.getClientRects());
         for (let i = 0; i < clientRects.length; i++) {
           const r = clientRects[i];
           if (r.width <= 0 || r.height <= 0) continue;

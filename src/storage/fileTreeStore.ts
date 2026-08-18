@@ -57,7 +57,13 @@ interface FileTreeState {
 
   createFile: (parentId: string | null, name?: string) => Promise<string>;
   renameFile: (id: string, name: string) => Promise<void>;
+  /** 요구사항(휴지통): 더 이상 즉시 영구 삭제하지 않는다 — deletedAt만 찍어 트리
+   * 렌더링에서 숨기고(복구 가능), 실제 IndexedDB 삭제는 permanentlyDeleteFile이 한다. */
   deleteFile: (id: string) => Promise<void>;
+  /** 이 File(과 트래시된 조상들)을 원래 위치로 복원한다. */
+  restoreFile: (id: string) => Promise<void>;
+  /** 휴지통에서 완전히 삭제한다(복구 불가) — 기존 deleteFile의 cascade 삭제 로직. */
+  permanentlyDeleteFile: (id: string) => Promise<void>;
   /** newParentId 아래로 옮긴다. beforeId를 주면 그 형제 파일 바로 앞에 끼워 넣고
    * (같은 부모 안에서 순서만 바꾸는 드래그 재정렬도 이 경로로 처리된다), 생략하면
    * 끝에 추가한다. */
@@ -66,7 +72,12 @@ interface FileTreeState {
 
   createPage: (fileId: string, name?: string) => Promise<string>;
   renamePage: (id: string, name: string) => Promise<void>;
+  /** 요구사항(휴지통): deleteFile과 동일하게 소프트 삭제(트래시로 이동)로 바뀌었다. */
   deletePage: (id: string) => Promise<void>;
+  restorePage: (id: string) => Promise<void>;
+  permanentlyDeletePage: (id: string) => Promise<void>;
+  /** 지금 휴지통에 있는 모든 File/Page를 한 번에 영구 삭제한다. */
+  emptyTrash: () => Promise<void>;
   /** newFileId 아래로 옮긴다. beforeId를 주면 그 형제 페이지 바로 앞에 끼워 넣는다
    * (moveFile과 동일한 규칙). */
   movePage: (id: string, newFileId: string, beforeId?: string | null) => Promise<void>;
@@ -230,7 +241,9 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
 
     const lastOpenPageId = (await db.get('meta', 'lastOpenPageId')) as string | undefined;
     const targetPageId =
-      lastOpenPageId && pages[lastOpenPageId] ? lastOpenPageId : findFirstPageId(rootFileIds, files);
+      lastOpenPageId && pages[lastOpenPageId] && !pages[lastOpenPageId].deletedAt
+        ? lastOpenPageId
+        : findFirstPageId(rootFileIds, files, pages);
 
     if (targetPageId) {
       await get().openPage(targetPageId);
@@ -296,6 +309,59 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
     deleteFile: async (id) => {
       const state = get();
       const file = state.files[id];
+      if (!file || file.deletedAt) return;
+
+      // 이 File 하위(자기 자신 포함)에 있는 모든 Page가 트래시 대상이다 — 지금 열려
+      // 있는 Page가 여기 포함되면, 트래시로 보내기 전에 다른(트래시되지 않은) Page로
+      // 옮겨가야 한다(영구 삭제였던 기존 로직과 동일한 원칙, cascade만 없을 뿐).
+      const subtreeFileIds = collectFileSubtreeIds(state.files, id);
+      const subtreeFileIdSet = new Set(subtreeFileIds);
+      const affectedPageIds = subtreeFileIds.flatMap((fid) => state.files[fid]?.pageIds ?? []);
+      const affectedPageIdSet = new Set(affectedPageIds);
+
+      if (state.currentPageId && affectedPageIdSet.has(state.currentPageId)) {
+        const fallback = findFallbackPageId(get(), subtreeFileIdSet, affectedPageIdSet);
+        if (fallback) {
+          await get().openPage(fallback);
+        } else {
+          const newFileId = await get().createFile(null, '내 캔버스');
+          const newPageId = await get().createPage(newFileId, 'Page 1');
+          await get().openPage(newPageId);
+        }
+      }
+
+      // 트리 구조(부모의 childFileIds 등)는 그대로 둔다 — deletedAt만 찍어서 렌더링에서
+      // 숨기면, restoreFile이 그 값만 지워서 원래 자리로 되돌릴 수 있다.
+      const updated: FileRecord = { ...file, deletedAt: Date.now() };
+      set((s) => ({ files: { ...s.files, [id]: updated } }));
+      await persistFile(updated);
+    },
+
+    restoreFile: async (id) => {
+      const state = get();
+      if (!state.files[id]) return;
+      // 이 File 자신 + 트래시된 상위 조상들을 전부 복원한다 — 그렇지 않으면 이 File만
+      // 복원돼도 여전히 트래시된 부모 폴더 밑에 있어서 트리에서 보이지 않는다.
+      const chain: string[] = [id];
+      let cursor = state.files[id].parentId;
+      while (cursor) {
+        const f = state.files[cursor];
+        if (!f || !f.deletedAt) break;
+        chain.push(cursor);
+        cursor = f.parentId;
+      }
+      for (const fid of chain) {
+        const f = get().files[fid];
+        if (!f || !f.deletedAt) continue;
+        const updated: FileRecord = { ...f, deletedAt: undefined, updatedAt: Date.now() };
+        set((s) => ({ files: { ...s.files, [fid]: updated } }));
+        await persistFile(updated);
+      }
+    },
+
+    permanentlyDeleteFile: async (id) => {
+      const state = get();
+      const file = state.files[id];
       if (!file) return;
 
       const subtreeFileIds = collectFileSubtreeIds(state.files, id);
@@ -303,13 +369,13 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
       const affectedPageIds = subtreeFileIds.flatMap((fid) => state.files[fid]?.pageIds ?? []);
       const affectedPageIdSet = new Set(affectedPageIds);
 
-      // 지금 열려 있는 Page가 삭제 대상에 포함되면, 삭제 전에 다른 Page로 옮겨가야 한다.
+      // 방어적 처리: 보통 트래시에 있는(=현재 열린 Page일 수 없는) 항목에만 호출되지만,
+      // 혹시 모를 경우를 대비해 기존 deleteFile과 동일한 대체 Page 로직을 유지한다.
       if (state.currentPageId && affectedPageIdSet.has(state.currentPageId)) {
-        const fallback = findFallbackPageId(state, subtreeFileIdSet, affectedPageIdSet);
+        const fallback = findFallbackPageId(get(), subtreeFileIdSet, affectedPageIdSet);
         if (fallback) {
           await get().openPage(fallback);
         } else {
-          // 트리에 남는 Page가 하나도 없다 — 새 기본 File+Page를 만들어 거기로 옮긴다.
           const newFileId = await get().createFile(null, '내 캔버스');
           const newPageId = await get().createPage(newFileId, 'Page 1');
           await get().openPage(newPageId);
@@ -432,10 +498,61 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
     deletePage: async (id) => {
       const state = get();
       const page = state.pages[id];
+      if (!page || page.deletedAt) return;
+
+      if (state.currentPageId === id) {
+        const remaining = findFallbackPageId(get(), new Set(), new Set([id]));
+        if (remaining) {
+          await get().openPage(remaining);
+        } else {
+          const newFileId = await get().createFile(null, '내 캔버스');
+          const newPageId = await get().createPage(newFileId, 'Page 1');
+          await get().openPage(newPageId);
+        }
+      }
+
+      const updated: PageRecord = { ...page, deletedAt: Date.now() };
+      set((s) => ({ pages: { ...s.pages, [id]: updated } }));
+      await persistPage(updated);
+    },
+
+    restorePage: async (id) => {
+      const state = get();
+      const page = state.pages[id];
+      if (!page) return;
+
+      if (page.deletedAt) {
+        const updated: PageRecord = { ...page, deletedAt: undefined, updatedAt: Date.now() };
+        set((s) => ({ pages: { ...s.pages, [id]: updated } }));
+        await persistPage(updated);
+      }
+
+      // 이 Page가 속한 File 조상 중 트래시된 게 있으면 함께 복원해야 트리에서 보인다
+      // (restoreFile과 동일한 원리 — 여기서는 Page 자신부터가 아니라 fileId부터 시작).
+      const chain: string[] = [];
+      let cursor: string | null = page.fileId;
+      while (cursor) {
+        const ancestor: FileRecord | undefined = get().files[cursor];
+        if (!ancestor || !ancestor.deletedAt) break;
+        chain.push(cursor);
+        cursor = ancestor.parentId;
+      }
+      for (const fid of chain) {
+        const f = get().files[fid];
+        if (!f || !f.deletedAt) continue;
+        const updated: FileRecord = { ...f, deletedAt: undefined, updatedAt: Date.now() };
+        set((s) => ({ files: { ...s.files, [fid]: updated } }));
+        await persistFile(updated);
+      }
+    },
+
+    permanentlyDeletePage: async (id) => {
+      const state = get();
+      const page = state.pages[id];
       if (!page) return;
 
       if (state.currentPageId === id) {
-        const remaining = findFallbackPageId(state, new Set(), new Set([id]));
+        const remaining = findFallbackPageId(get(), new Set(), new Set([id]));
         if (remaining) {
           await get().openPage(remaining);
         } else {
@@ -453,6 +570,25 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
         delete pages[id];
         return { pages };
       });
+    },
+
+    emptyTrash: async () => {
+      // 두 목록 모두 "자기 자신이 직접 트래시된" 최상위 항목만 담는다 — 트래시된
+      // 폴더 안에 있는 Page/하위 File은 자기 deletedAt이 없으므로(조상만 트래시됨)
+      // 여기 안 잡히고, 그 폴더를 permanentlyDeleteFile할 때 cascade로 함께 지워진다.
+      const trashedFileIds = Object.values(get().files)
+        .filter((f) => f.deletedAt)
+        .map((f) => f.id);
+      const trashedPageIds = Object.values(get().pages)
+        .filter((p) => p.deletedAt)
+        .map((p) => p.id);
+
+      for (const fid of trashedFileIds) {
+        if (get().files[fid]) await get().permanentlyDeleteFile(fid);
+      }
+      for (const pid of trashedPageIds) {
+        if (get().pages[pid]) await get().permanentlyDeletePage(pid);
+      }
     },
 
     movePage: async (id, newFileId, beforeId) => {
@@ -497,7 +633,10 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
   };
 });
 
-/** 삭제 대상 집합(subtreeFileIdSet/affectedPageIdSet)을 제외하고, 트리에 남는 첫 Page를 찾는다. */
+/** 삭제(또는 트래시) 대상 집합(subtreeFileIdSet/affectedPageIdSet)을 제외하고, 트리에
+ * 남는(그리고 트래시되지 않은) 첫 Page를 찾는다 — findFirstPageId 자체가 이미
+ * deletedAt이 있는 File/Page를 건너뛰므로, 여기서는 "지금 막 트래시/삭제하려는"
+ * 항목만 추가로 걸러내면 된다. */
 function findFallbackPageId(
   state: FileTreeState,
   excludeFileIds: Set<string>,
@@ -509,5 +648,5 @@ function findFallbackPageId(
     if (excludeFileIds.has(fid)) continue;
     filteredFiles[fid] = { ...f, pageIds: f.pageIds.filter((pid) => !excludePageIds.has(pid)) };
   }
-  return findFirstPageId(remainingRoots, filteredFiles);
+  return findFirstPageId(remainingRoots, filteredFiles, state.pages);
 }

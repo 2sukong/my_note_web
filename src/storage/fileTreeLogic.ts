@@ -1,5 +1,5 @@
 import type { CanvasObject } from '../types/object';
-import type { FileRecord } from './db';
+import type { FileRecord, PageRecord } from './db';
 
 /**
  * fileTreeStore.ts에서 쓰는 순수 로직만 모아둔 모듈 — DOM/IndexedDB/zustand에 전혀
@@ -34,27 +34,62 @@ export function collectFileSubtreeIds(files: Record<string, FileRecord>, rootId:
 }
 
 /** rootFileIds에서 시작해 File 트리를 깊이 우선으로 순회하며 처음 만나는 Page id를 찾는다.
- * 각 File은 자기 pageIds를 먼저 보고, 그다음 하위 File들을 재귀적으로 본다. */
+ * 각 File은 자기 pageIds를 먼저 보고, 그다음 하위 File들을 재귀적으로 본다.
+ *
+ * 요구사항(휴지통): pages를 넘기면 deletedAt이 있는 File/Page는 건너뛴다(휴지통에
+ * 있는 것들은 "찾을 수 있는 Page"가 아니다 — 최초 실행 시 기본 Page 선택,
+ * 트래시/영구삭제 시 대체 Page 찾기 모두 이 함수를 재사용한다). pages를 생략하면
+ * 기존 동작(필터링 없음)과 완전히 같다 — 하위 호환을 위한 기본값. */
 export function findFirstPageId(
   rootFileIds: string[],
   files: Record<string, FileRecord>,
+  pages: Record<string, PageRecord> = {},
 ): string | null {
   for (const fileId of rootFileIds) {
-    const found = findFirstPageInFile(fileId, files);
+    const found = findFirstPageInFile(fileId, files, pages);
     if (found) return found;
   }
   return null;
 }
 
-function findFirstPageInFile(fileId: string, files: Record<string, FileRecord>): string | null {
+function findFirstPageInFile(
+  fileId: string,
+  files: Record<string, FileRecord>,
+  pages: Record<string, PageRecord>,
+): string | null {
   const file = files[fileId];
-  if (!file) return null;
-  if (file.pageIds.length > 0) return file.pageIds[0];
+  if (!file || file.deletedAt) return null;
+  const livePageId = file.pageIds.find((pid) => !pages[pid]?.deletedAt);
+  if (livePageId) return livePageId;
   for (const childId of file.childFileIds) {
-    const found = findFirstPageInFile(childId, files);
+    const found = findFirstPageInFile(childId, files, pages);
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * 요구사항(찾기): lowerQuery(호출부가 미리 소문자로 바꿔 넘김)가 이 File 자신의
+ * 이름에 포함되는지, 아니면 (트래시되지 않은) 하위 트리 어딘가의 File/Page 이름에
+ * 포함되는지 재귀적으로 검사한다. FileTreePanel.tsx가 이 결과로 "검색어와 무관한
+ * 가지는 숨기고, 매치가 있는 가지는 자동으로 펼쳐서 보여준다"를 구현한다. 트래시된
+ * File/Page는 애초에 검색 대상이 아니다(휴지통은 별도 패널에서 다룬다).
+ */
+export function fileSubtreeMatchesQuery(
+  fileId: string,
+  lowerQuery: string,
+  files: Record<string, FileRecord>,
+  pages: Record<string, PageRecord>,
+): boolean {
+  const file = files[fileId];
+  if (!file || file.deletedAt) return false;
+  if (file.name.toLowerCase().includes(lowerQuery)) return true;
+  const pageMatches = file.pageIds.some((pid) => {
+    const page = pages[pid];
+    return !!page && !page.deletedAt && page.name.toLowerCase().includes(lowerQuery);
+  });
+  if (pageMatches) return true;
+  return file.childFileIds.some((cid) => fileSubtreeMatchesQuery(cid, lowerQuery, files, pages));
 }
 
 /** frameId를 가질 수 있는 객체 타입인지 — objectsStore.ts의 동일 이름 헬퍼와 같은 목록. */

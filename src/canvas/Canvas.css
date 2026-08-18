@@ -40,107 +40,69 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid #8a8a7a;
-  border-radius: 4px;
+  border: 1.5px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.7);
   font-family: system-ui, sans-serif;
   font-size: 14px;
-  color: #444;
+  color: var(--color-text-secondary);
 }
 
-.canvas-hud {
-  position: fixed;
-  top: 12px;
-  /* Phase 8: 사이드바(240px) 오른쪽에서부터 기존과 같은 12px 여백. */
-  left: 252px;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
-  font-family: system-ui, sans-serif;
-  font-size: 13px;
-  color: #333;
-}
-
-.canvas-hud button {
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-  background: #fff;
-  cursor: pointer;
-}
-
-.canvas-hud-hint {
-  color: #888;
-  font-size: 11px;
-}
-
+/* 요구사항: 상단 도구 메뉴를 화면 상단 중앙으로 옮긴다 — 오른쪽 속성
+   사이드바(PropertiesPanel)와 더 이상 같은 자리를 다투지 않으므로 그쪽도
+   top:12px로 올려 파일 트리 사이드바와 같은 높이에서 시작하게 맞췄다. */
 .canvas-toolbar {
   position: fixed;
   top: 12px;
-  right: 12px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 10;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  gap: 4px;
+  padding: 5px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
   font-family: system-ui, sans-serif;
   max-width: calc(100vw - 24px);
 }
 
 .canvas-toolbar-btn {
-  font-size: 12px;
-  padding: 5px 10px;
-  border-radius: 5px;
-  border: 1px solid #ccc;
-  background: #fff;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
   cursor: pointer;
-  color: #444;
+  color: var(--color-text-secondary);
+}
+
+.canvas-toolbar-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .canvas-toolbar-btn.is-active {
-  border-color: #4f8cff;
-  background: #eaf1ff;
-  color: #1a56db;
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
 }
 
 .canvas-toolbar-divider {
   width: 1px;
-  height: 18px;
-  background: #ddd;
+  height: 22px;
+  background: var(--color-border);
+  margin: 0 2px;
 }
 
-.canvas-toolbar-swatches {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  max-width: 220px;
-}
-
-.canvas-toolbar-swatch {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1.5px solid rgba(0, 0, 0, 0.15);
-  cursor: pointer;
-  padding: 0;
-}
-
-.canvas-toolbar-swatch.is-active {
-  border-color: #333;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
-}
 
 /* 요구사항(텍스트 기본값 저장): '텍스트' 버튼에 마우스를 올리면 '제목'/'본문' 저장
    프리셋을 바로 적용할 수 있는 작은 메뉴가 뜬다. 버튼과 메뉴 사이에 틈이 있으면
@@ -154,15 +116,17 @@
   display: none;
   position: absolute;
   top: 100%;
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   flex-direction: column;
-  min-width: 64px;
+  min-width: 72px;
   padding: 4px;
   gap: 2px;
-  border-radius: 6px;
-  border: 1px solid #ccc;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin-top: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
   z-index: 20;
 }
 
@@ -171,23 +135,23 @@
 }
 
 .canvas-toolbar-text-flyout-item {
-  font-size: 12px;
-  padding: 5px 8px;
+  font-size: var(--font-size-sm);
+  padding: 6px 8px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
-  color: #444;
+  color: var(--color-text-secondary);
   text-align: left;
   cursor: pointer;
 }
 
 .canvas-toolbar-text-flyout-item:hover:not(:disabled) {
-  background: #eaf1ff;
-  color: #1a56db;
+  background: var(--color-surface-hover);
+  color: var(--color-text);
 }
 
 .canvas-toolbar-text-flyout-item:disabled {
-  color: #bbb;
+  color: var(--color-text-muted);
   cursor: not-allowed;
 }
 
@@ -200,24 +164,144 @@
   flex-direction: column;
   min-width: 160px;
   padding: 4px;
-  border-radius: 8px;
-  background: #fff;
-  border: 1px solid #ddd;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
   font-family: system-ui, sans-serif;
 }
 
 .object-context-menu button {
   text-align: left;
   padding: 6px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
-  color: #333;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
 }
 
 .object-context-menu button:hover {
-  background: #f0efe8;
+  background: var(--color-surface-hover);
+}
+
+/* 요구사항(찾기): 예전 canvas-hud가 있던 자리(사이드바 바로 오른쪽 위)를 재사용한다.
+   왼쪽 파일 트리와 같은 --file-tree-width 변수를 그대로 따라가므로, 사이드바를
+   접으면 돋보기도 (사라지지 않고) 그만큼 왼쪽으로 따라 이동한다. */
+.canvas-search {
+  position: fixed;
+  top: 12px;
+  left: calc(var(--file-tree-width, 240px) + 12px);
+  z-index: 10;
+  transition: left 0.15s ease;
+}
+
+.canvas-search-toggle {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-panel);
+  cursor: pointer;
+  padding: 0;
+}
+
+.canvas-search-toggle:hover {
+  color: var(--color-text);
+}
+
+.canvas-search-toggle.is-active {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.canvas-search-panel {
+  position: absolute;
+  top: 40px;
+  left: 0;
+  width: 260px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+  font-family: system-ui, sans-serif;
+  overflow: hidden;
+}
+
+.canvas-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--font-size-md);
+  padding: 8px 10px;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text);
+}
+
+.canvas-search-input:focus {
+  outline: none;
+}
+
+.canvas-search-results {
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.canvas-search-empty {
+  padding: 10px 12px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.canvas-search-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.canvas-search-result:hover {
+  background: var(--color-surface-hover);
+}
+
+.canvas-search-result-icon {
+  display: flex;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.canvas-search-result-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.canvas-search-result-title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvas-search-result-snippet {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

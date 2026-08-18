@@ -276,6 +276,24 @@ interface ObjectsState {
   bringForward: (id: string) => void;
   sendBackward: (id: string) => void;
 
+  /** 요구사항(객체 잠금): 켜면 이동/크기조절/삭제/내용 편집을 막는다(선택/우클릭은 계속 가능). */
+  setLocked: (id: string, locked: boolean) => void;
+
+  /**
+   * 요구사항(Ctrl+G 그룹화): 넘어온 id들에 새 groupId를 부여해 "가벼운 그룹"으로
+   * 묶는다. 2개 미만이면 묶을 의미가 없으므로 호출부(useGroupShortcut)가 미리
+   * 걸러야 하지만, 여기서도 방어적으로 무시한다. 반환값은 새로 만든 groupId.
+   */
+  groupObjects: (ids: string[]) => string | null;
+  /**
+   * 넘어온 id들이 속한 그룹(들)을 완전히 해제한다 — 그 그룹에 속한 모든 멤버의
+   * groupId를 지운다(넘어온 id가 아니라 "그 그룹 전체"가 대상 — Figma 등과 동일한 관례).
+   */
+  ungroupObjects: (ids: string[]) => void;
+  /** id가 속한 그룹의 전체 멤버 id 목록을 반환한다(그룹이 없으면 [id] 하나만).
+   * useObjectDrag/useObjectDeleteShortcut이 "그룹째 함께 이동/삭제"할 때 쓴다. */
+  getGroupMemberIds: (id: string) => string[];
+
   /**
    * Phase 8: Page를 전환할 때 fileTreeStore가 호출한다. patches/undo 기록 없이
    * objects를 통째로 교체한다 — 이건 사용자의 편집이 아니라 "다른 Page를 불러오는"
@@ -645,5 +663,53 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
         target.updatedAt = now();
         prev.updatedAt = now();
       }, `zorder:${id}`),
+
+    setLocked: (id, locked) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || (target.locked ?? false) === locked) return;
+        target.locked = locked;
+        target.updatedAt = now();
+      }),
+
+    groupObjects: (ids) => {
+      const uniqueIds = Array.from(new Set(ids));
+      if (uniqueIds.length < 2) return null;
+      const groupId = createId();
+      mutate((draft) => {
+        for (const id of uniqueIds) {
+          const target = draft[id];
+          if (!target) continue;
+          target.groupId = groupId;
+          target.updatedAt = now();
+        }
+      });
+      return groupId;
+    },
+
+    ungroupObjects: (ids) => {
+      const objects = get().objects;
+      const groupIds = new Set(
+        ids.map((id) => objects[id]?.groupId).filter((g): g is string => !!g),
+      );
+      if (groupIds.size === 0) return;
+      mutate((draft) => {
+        for (const obj of Object.values(draft)) {
+          if (obj.groupId && groupIds.has(obj.groupId)) {
+            obj.groupId = null;
+            obj.updatedAt = now();
+          }
+        }
+      });
+    },
+
+    getGroupMemberIds: (id) => {
+      const objects = get().objects;
+      const groupId = objects[id]?.groupId;
+      if (!groupId) return [id];
+      return Object.values(objects)
+        .filter((o) => o.groupId === groupId)
+        .map((o) => o.id);
+    },
   };
 });

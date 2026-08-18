@@ -5,8 +5,8 @@ interface RecentColorSwatchesProps {
   category: RecentColorCategory;
   onPick: (color: string) => void;
   activeColor?: string;
-  /** 스와치 하나의 CSS 클래스 — 상단 툴바(canvas-toolbar-swatch)와 사이드바
-   * (properties-round-swatch)가 서로 다른 크기/스타일을 쓰므로 호출부에서 넘긴다. */
+  /** 스와치 하나의 CSS 클래스 — 호출부(사이드바의 properties-round-swatch 등)마다
+   * 크기/스타일이 다를 수 있어 넘겨받는다. */
   swatchClassName: string;
 }
 

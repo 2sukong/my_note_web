@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useImageLightboxStore } from '../store/imageLightboxStore';
 
 /**
@@ -7,9 +7,26 @@ import { useImageLightboxStore } from '../store/imageLightboxStore';
  * ObjectContextMenu와 같은 자리에 둔다 — 화면 전체를 덮어야 하고 캔버스 확대/축소와
  * 무관하게 항상 같은 크기로 보여야 하기 때문이다.
  */
+/** 열림 전환(오버레이 페이드 인 + 이미지가 살짝 작은 상태에서 원래 크기로 커짐)의
+ * 지속시간 — 배경/이미지 스타일과 아래 useEffect의 rAF 타이밍이 이 값을 공유한다. */
+const ENTER_TRANSITION = 'transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease';
+
 export function ImageLightbox() {
   const url = useImageLightboxStore((s) => s.url);
   const close = useImageLightboxStore((s) => s.close);
+  // 요구사항(이미지가 커지는 모션): 마운트와 동시에 최종 스타일로 그려버리면 브라우저가
+  // 전환할 "이전 상태"가 없어 애니메이션 없이 바로 나타난다 — 처음엔 살짝 작고 투명한
+  // 상태로 그렸다가, 다음 프레임에 entered를 켜서 실제 크기/불투명도로 전환시킨다.
+  const [entered, setEntered] = useState(false);
+
+  useEffect(() => {
+    if (!url) {
+      setEntered(false);
+      return;
+    }
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, [url]);
 
   // 열려있는 동안에만 Escape를 감시한다 — 안 그러면 이미지가 안 떠 있을 때도
   // 전역 keydown 리스너가 계속 붙어 있어서 다른 단축키(예: Backspace 삭제)와
@@ -31,7 +48,8 @@ export function ImageLightbox() {
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(20, 18, 12, 0.82)',
+        background: entered ? 'rgba(0, 0, 0, 0.82)' : 'rgba(0, 0, 0, 0)',
+        transition: 'background 0.2s ease',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -57,6 +75,9 @@ export function ImageLightbox() {
           boxShadow: '0 8px 40px rgba(0, 0, 0, 0.5)',
           borderRadius: 4,
           cursor: 'default',
+          transform: entered ? 'scale(1)' : 'scale(0.86)',
+          opacity: entered ? 1 : 0,
+          transition: ENTER_TRANSITION,
         }}
       />
       <button

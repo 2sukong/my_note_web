@@ -26,20 +26,30 @@ export function ArrowHeadIcon({ style }: { style: 'none' | 'open' | 'triangle' }
   );
 }
 
+/** 요구사항(모서리 아이콘 개선): 사각형 전체 윤곽 없이, 실제 사각형의 한쪽
+ * 모서리(좌상단)만 확대해서 보여준다 — 직각 꺾임 vs 둥근 호 두 상태가 그
+ * 자체로 뚜렷이 갈린다. */
 export function CornerIcon({ rounded }: { rounded: boolean }) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18">
-      <rect
-        x="4"
-        y="4"
-        width="16"
-        height="16"
-        rx={rounded ? 6 : 0}
-        fill="none"
-        stroke={STROKE}
-        strokeWidth="2"
-        strokeDasharray="3 2.5"
-      />
+      {rounded ? (
+        <path
+          d="M6.5 18V11a4.5 4.5 0 0 1 4.5-4.5H18"
+          fill="none"
+          stroke={STROKE}
+          strokeWidth="2.3"
+          strokeLinecap="round"
+        />
+      ) : (
+        <path
+          d="M6.5 18V6.5H18"
+          fill="none"
+          stroke={STROKE}
+          strokeWidth="2.3"
+          strokeLinecap="square"
+          strokeLinejoin="miter"
+        />
+      )}
     </svg>
   );
 }
@@ -75,7 +85,7 @@ export function FillIcon({ filled }: { filled: boolean }) {
         fill={filled ? STROKE : 'none'}
         fillOpacity={filled ? 0.35 : undefined}
         stroke={STROKE}
-        strokeWidth="2"
+        strokeWidth="1.3"
       />
     </svg>
   );
@@ -135,42 +145,36 @@ export function SwapIcon() {
 }
 
 /** 요구사항(프레임 사이드바 — A4 절반 전체 회전): SwapIcon(비율만 전환)과 구분되는
- * "진짜로 90도 돌린다"는 느낌의 회전 화살표. */
+ * "진짜로 90도 돌린다"는 느낌의 회전 화살표. 화살촉을 곡선 끝에서 갈라진 별도
+ * 조각으로 두지 않고, 곡선의 둥근 끝(strokeLinecap:round)과 화살촉의 안쪽 모서리가
+ * 맞닿도록 좌표를 맞춰 하나로 이어진 것처럼 보이게 한다. */
 export function RotateIcon() {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18">
-      <path
-        d="M5 12a7 7 0 1 1 2.1 5"
-        fill="none"
-        stroke={STROKE}
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <polyline points="3,16 4,11 9,12" fill="none" stroke={STROKE} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.5 6A7 7 0 1 1 5.3 16.2" fill="none" stroke={STROKE} strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M9.8 3.2 9.2 8l-4.6-1.6z" fill={STROKE} />
     </svg>
   );
 }
 
-/** 요구사항(형광펜 지우개): 클래식한 두 톤 지우개 모양 — 몸통을 살짝 기울이고
- * 가운데에 선을 하나 그어 "닳은 쪽/새 쪽"을 나눈 느낌만 낸다. active(지우개 모드
- * 켜짐)일 때는 FillIcon과 같은 관례로 옅게 채워서 눈에 띄게 한다. */
+/** 요구사항(지우개 아이콘 개선): 누구나 바로 "지우개"로 읽을 수 있는 클래식한
+ * 두 톤 실루엣 — 몸통을 기울이고, 아래쪽 끝(닳아서 뭉툭해진 팁)만 검게 채워
+ * 위쪽(깨끗한 몸통)과 뚜렷이 나뉘게 한다. active(지우개 모드 켜짐)일 때는 몸통
+ * 전체를 옅게 채워 다른 Tile의 켜짐 상태와 같은 관례를 따른다. */
 export function EraserIcon({ active }: { active: boolean }) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18">
-      <g transform="rotate(-35 12 12)">
-        <rect
-          x="5"
-          y="9"
-          width="14"
-          height="9"
-          rx="2"
-          fill={active ? STROKE : 'none'}
-          fillOpacity={active ? 0.25 : undefined}
+      <g transform="rotate(-40 12 12)">
+        <path
+          d="M6.6 9.4a2 2 0 0 1 2-2h6.8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8.6a2 2 0 0 1-2-2z"
+          fill={active ? STROKE : '#fff'}
+          fillOpacity={active ? 0.18 : 1}
           stroke={STROKE}
-          strokeWidth="2"
+          strokeWidth="1.7"
           strokeLinejoin="round"
         />
-        <line x1="5" y1="13.5" x2="19" y2="13.5" stroke={STROKE} strokeWidth="2" />
+        <path d="M6.6 13.4h10.8" stroke={STROKE} strokeWidth="1.7" />
+        <path d="M6.6 13.4v2a2 2 0 0 0 2 2h6.8a2 2 0 0 0 2-2v-2z" fill={STROKE} stroke="none" />
       </g>
     </svg>
   );

@@ -21,11 +21,12 @@ import { highlightBackgroundFor } from './highlightColors';
 import { registerLineEl, unregisterLineEl } from './lineDomRegistry';
 import { AnnotationBubble, DEFAULT_ANNOTATION_OFFSET_X_BASE } from './AnnotationBubble';
 import { useObjectsStore } from '../../store/objectsStore';
+import { resolveFrameTheme } from '../frame/frameStyles';
 import { useInteractionStore } from '../../store/interactionStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useToolStore } from '../../store/toolStore';
 import { useFontStore } from '../../store/fontStore';
-import { caretOffsetFromPoint, focusLineAt, getCaretOffset, measureCharOffsetPx, rangeForOffsets } from './domCaret';
+import { caretOffsetFromPoint, focusLineAt, getCaretOffset, measureCharOffsetPx, mergeClientRectsByLine, rangeForOffsets } from './domCaret';
 import { useTextRangeSelection } from './useTextRangeSelection';
 import { DEFAULT_FONT_FAMILY } from './fontOptions';
 import { fontHeightScaleFor } from './fontMetrics';
@@ -304,6 +305,13 @@ export function TextObjectView({ object }: { object: TextObject }) {
   const updateAnnotationOffset = useObjectsStore((s) => s.updateAnnotationOffset);
   const removeAnnotation = useObjectsStore((s) => s.removeAnnotation);
 
+  // 요구사항(어두운 프레임 위 텍스트 상자): 이 Text가 속한 Frame(frameId, 순수 논리적
+  // 참조 — 원칙 3, 4 위 주석 참고)이 다크 테마면, 항상 반투명 흰 배경을 깔던 기존
+  // 동작이 다크 배경 위에서 뿌연 회색 얼룩처럼 보인다. 그 경우에만 배경을 완전히
+  // 투명하게 비운다 — 테두리(borderEnabled)는 이 판정과 무관하게 그대로 유지된다.
+  const parentFrame = useObjectsStore((s) => (object.frameId ? s.objects[object.frameId] : undefined));
+  const isOnDarkFrame = parentFrame?.type === 'frame' && resolveFrameTheme(parentFrame.style) === 'dark';
+
   // AnnotationBubble이 스스로 측정한 실제 렌더 높이를 보고받는다(줄 수가 늘어나면
   // 높이도 늘어남 — 요구사항: 텍스트 크기를 줄이지 않고 박스 높이로 대응). 값이
   // 실제로 바뀌었을 때만 setState해서 불필요한 재렌더를 막는다.
@@ -471,7 +479,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
           if (end <= start) continue;
           const range = rangeForOffsets(el, start, end);
           if (!range) continue;
-          const rects = range.getClientRects();
+          const rects = mergeClientRectsByLine(range.getClientRects());
           for (let i = 0; i < rects.length; i++) {
             const r = rects[i];
             if (r.width <= 0 || r.height <= 0) continue;
@@ -633,6 +641,13 @@ export function TextObjectView({ object }: { object: TextObject }) {
   };
 
   const handleDoubleClick = () => {
+    // 요구사항(객체 잠금): 잠긴 텍스트는 선택은 되지만(위 select 자체는 계속 허용)
+    // 내용 편집 모드로는 들어가지 않는다 — contentEditable이 열리면 사실상 잠금이
+    // 의미가 없어지므로 여기서 막는다.
+    if (object.locked) {
+      useInteractionStore.getState().select(object.id);
+      return;
+    }
     useInteractionStore.getState().select(object.id);
     useInteractionStore.getState().setMode('text-edit');
     const first = object.lines[0];
@@ -888,10 +903,10 @@ export function TextObjectView({ object }: { object: TextObject }) {
         padding: 6,
         fontSize: object.baseFontSize,
         color: object.color,
-        background: 'rgba(255,255,255,0.7)',
+        background: isOnDarkFrame ? 'transparent' : 'rgba(255,255,255,0.7)',
         // 요구사항(텍스트 상자 테두리 옵션): borderEnabled(undefined는 true와 동일 —
         // 기존엔 항상 테두리가 있었다)가 false면 테두리 없이 반투명 배경만 남는다.
-        border: object.borderEnabled === false ? 'none' : '1px solid #d8d6c9',
+        border: object.borderEnabled === false ? 'none' : '1px solid #d9d9d9',
         borderRadius: 4,
         // 요구사항 4번: 내용이 상자 크기를 넘어가도 내부 스크롤 대신 세로로 자동
         // 확장된다(위 useLayoutEffect가 매 렌더마다 scrollHeight를 측정해 object.height를

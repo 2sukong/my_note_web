@@ -52,7 +52,13 @@ export function useClipboardShortcuts() {
       useClipboardStore.getState().copy(toCopy);
 
       if (key === 'x') {
-        useObjectsStore.getState().removeObjects(selectedIds);
+        // 요구사항(객체 잠금): 복사는 잠긴 객체도 포함해서 되지만(위 toCopy),
+        // 잘라내기의 "지우기" 절반은 잠긴 객체를 제외한다 — Delete/Backspace와
+        // 동일한 규칙(useObjectDeleteShortcut.ts 참고).
+        const removableIds = selectedIds.filter((id) => !objects[id]?.locked);
+        if (removableIds.length > 0) {
+          useObjectsStore.getState().removeObjects(removableIds);
+        }
         useInteractionStore.getState().deselect();
       }
     };

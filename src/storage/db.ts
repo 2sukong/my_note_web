@@ -33,6 +33,13 @@ export interface FileRecord {
   pageIds: string[];
   createdAt: number;
   updatedAt: number;
+  /** 요구사항(휴지통): 값이 있으면 "휴지통에 있음"(삭제 시각). rootFileIds/childFileIds/
+   * pageIds 등 트리 구조 자체는 그대로 두고(그래야 복원 시 원래 위치로 돌아간다) 이
+   * 필드로만 숨김 여부를 표시한다 — undefined는 "휴지통에 없음"(기존 기본값)과 동일.
+   * 하위 File/Page는 자기 자신의 deletedAt을 갖지 않는다(폴더를 휴지통으로 보내면
+   * 트리 순회가 그 폴더를 건너뛰므로 안에 있는 것들도 자연히 안 보인다 —
+   * storage/fileTreeStore.ts의 trashFile/restoreFile 참고). */
+  deletedAt?: number;
 }
 
 export interface PageRecord {
@@ -42,6 +49,8 @@ export interface PageRecord {
   viewport: Viewport;
   createdAt: number;
   updatedAt: number;
+  /** FileRecord.deletedAt과 같은 의미 — 이 Page 자신이 직접 휴지통으로 보내진 경우다. */
+  deletedAt?: number;
 }
 
 export interface PageObjectsRecord {

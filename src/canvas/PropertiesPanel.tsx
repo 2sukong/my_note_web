@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TextObject } from '../types/object';
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
@@ -22,7 +23,6 @@ import { FRAME_THEMES, FRAME_THEME_IDS, resolveFrameTheme, resolveFrameCenterFol
 import type { FrameTheme } from '../objects/frame/frameStyles';
 import { ColorPickerPopover } from '../objects/style/ColorPickerPopover';
 import { RecentColorSwatches } from '../objects/style/RecentColorSwatches';
-import { FontManagerPopover } from '../objects/style/FontManagerPopover';
 import {
   ArrowHeadIcon,
   BoldIcon,
@@ -35,6 +35,7 @@ import {
   StrokeWidthIcon,
   SwapIcon,
 } from '../objects/style/StyleIcons';
+import { ChevronDownIcon, PlusIcon } from '../icons/Icons';
 import './PropertiesPanel.css';
 
 const FONT_SIZE_PRESETS = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
@@ -222,13 +223,22 @@ export function PropertiesPanel() {
 }
 
 function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handlePointerDown(e: PointerEvent) {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    }
+    window.addEventListener('pointerdown', handlePointerDown);
+    return () => window.removeEventListener('pointerdown', handlePointerDown);
+  }, [onClose]);
+
   return (
-    <div className="properties-panel">
+    <div className="properties-panel" ref={panelRef}>
       <div className="properties-panel-header">
         <span>{title} 스타일</span>
-        <button type="button" className="properties-panel-close" onClick={onClose} aria-label="닫기">
-          ×
-        </button>
       </div>
       <div className="properties-panel-body">{children}</div>
     </div>
@@ -269,6 +279,275 @@ function Tile({ active, onClick, title, children }: { active: boolean; onClick: 
     >
       {children}
     </button>
+  );
+}
+
+/** 요구사항: 한 속성에 선택지가 여럿인 Tile 행(화살촉/선 스타일/모서리/채우기/굵기/
+ * 배경/A4 절반)을 하나의 회색 트랙으로 감싼다 — 단독 토글 Tile(굵게/테두리 등)에는
+ * 쓰지 않는다. */
+function TileGroup({ children }: { children: React.ReactNode }) {
+  return <div className="properties-tile-group">{children}</div>;
+}
+
+const DROPDOWN_WIDTH_MIN = 90;
+const DROPDOWN_HEIGHT_ESTIMATE = 200;
+const DROPDOWN_VIEWPORT_MARGIN = 8;
+
+/**
+ * 요구사항(둥근 카드 드롭다운): 텍스트/주석 "크기"처럼 펼쳐지는 목록이 둥근 모서리
+ * 카드 모양이어야 하는 자리에 쓰는 커스텀 드롭다운 — 네이티브 <select>는 옵션
+ * 목록(팝업)의 모양을 CSS로 바꿀 수 없어서 직접 만들었다. ColorPickerPopover.tsx와
+ * 같은 이유로 document.body에 portal + position:fixed로 띄운다(조상의
+ * overflow:hidden에 잘리지 않도록).
+ */
+function Dropdown<T extends string | number>({
+  value,
+  options,
+  labelOf,
+  onChange,
+}: {
+  value: T;
+  options: T[];
+  labelOf: (v: T) => string;
+  onChange: (v: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const computePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.max(rect.width, DROPDOWN_WIDTH_MIN);
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + width + DROPDOWN_VIEWPORT_MARGIN > window.innerWidth) {
+      left = Math.max(DROPDOWN_VIEWPORT_MARGIN, window.innerWidth - width - DROPDOWN_VIEWPORT_MARGIN);
+    }
+    if (top + DROPDOWN_HEIGHT_ESTIMATE + DROPDOWN_VIEWPORT_MARGIN > window.innerHeight) {
+      top = Math.max(DROPDOWN_VIEWPORT_MARGIN, rect.top - DROPDOWN_HEIGHT_ESTIMATE - 4);
+    }
+    setPos({ top, left, width });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    computePosition();
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleReposition = () => computePosition();
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="properties-select properties-dropdown-trigger"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span>{labelOf(value)}</span>
+        <ChevronDownIcon />
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="properties-dropdown-list"
+            style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
+          >
+            {options.map((opt) => (
+              <button
+                key={String(opt)}
+                type="button"
+                className={opt === value ? 'properties-dropdown-item is-active' : 'properties-dropdown-item'}
+                onClick={() => {
+                  onChange(opt);
+                  setOpen(false);
+                }}
+              >
+                {labelOf(opt)}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/**
+ * 요구사항(폰트 드롭다운): 글꼴 선택도 "크기"와 같은 둥근 카드 드롭다운으로 —
+ * 네이티브 <select>는 옵션 팝업 모양을 CSS로 바꿀 수 없어서(Dropdown과 같은 이유)
+ * 직접 만든다. 추가로 이 목록만의 두 가지 동작이 더 있다: 각 항목을 우클릭하면
+ * 그 폰트를 목록에서 지우고(기본 제공 폰트는 숨김 처리, 커스텀 업로드 폰트는 실제
+ * 삭제 — useFontStore 참고. 마지막 하나는 드롭다운이 완전히 비는 것을 막기 위해
+ * 삭제할 수 없다), 목록 맨 아래 "폰트 파일 추가" 항목이 파일 선택 창을 연다 — 예전엔
+ * 이 두 기능이 select 옆의 별도 +버튼과 "..." 관리 팝오버(FontManagerPopover)로
+ * 따로 떨어져 있었다.
+ */
+function FontDropdown({ currentFamily, onPick }: { currentFamily: string; onPick: (family: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const customFonts = useFontStore((s) => s.customFonts);
+  const registerFontFile = useFontStore((s) => s.registerFontFile);
+  const removeCustomFont = useFontStore((s) => s.removeCustomFont);
+  const removeBuiltinFont = useFontStore((s) => s.removeBuiltinFont);
+  const visibleBuiltins = useVisibleBuiltinFonts();
+  const totalCount = visibleBuiltins.length + customFonts.length;
+  const isLastOne = totalCount <= 1;
+
+  const currentLabel =
+    visibleBuiltins.find((f) => f.family === currentFamily)?.label ??
+    customFonts.find((f) => f.family === currentFamily)?.label ??
+    currentFamily;
+
+  const computePosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.max(rect.width, DROPDOWN_WIDTH_MIN);
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (left + width + DROPDOWN_VIEWPORT_MARGIN > window.innerWidth) {
+      left = Math.max(DROPDOWN_VIEWPORT_MARGIN, window.innerWidth - width - DROPDOWN_VIEWPORT_MARGIN);
+    }
+    if (top + DROPDOWN_HEIGHT_ESTIMATE + DROPDOWN_VIEWPORT_MARGIN > window.innerHeight) {
+      top = Math.max(DROPDOWN_VIEWPORT_MARGIN, rect.top - DROPDOWN_HEIGHT_ESTIMATE - 4);
+    }
+    setPos({ top, left, width });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    computePosition();
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (triggerRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleReposition = () => computePosition();
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('resize', handleReposition);
+    window.addEventListener('scroll', handleReposition, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('resize', handleReposition);
+      window.removeEventListener('scroll', handleReposition, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const handleFontFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    void registerFontFile(file)
+      .then((font) => onPick(font.family))
+      .catch(() => {
+        // 폰트 파일이 깨졌거나 브라우저가 파싱하지 못하는 형식 — 조용히 무시(선택 유지).
+      });
+  };
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="properties-select properties-dropdown-trigger"
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span style={{ fontFamily: currentFamily }}>{currentLabel}</span>
+        <ChevronDownIcon />
+      </button>
+      {open &&
+        pos &&
+        createPortal(
+          <div
+            ref={listRef}
+            className="properties-dropdown-list"
+            style={{ position: 'fixed', top: pos.top, left: pos.left, minWidth: pos.width }}
+          >
+            {visibleBuiltins.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                style={{ fontFamily: f.family }}
+                className={f.family === currentFamily ? 'properties-dropdown-item is-active' : 'properties-dropdown-item'}
+                title={isLastOne ? undefined : `${f.label} (우클릭: 목록에서 삭제)`}
+                onClick={() => {
+                  onPick(f.family);
+                  setOpen(false);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (isLastOne) return;
+                  removeBuiltinFont(f.id);
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+            {customFonts.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                style={{ fontFamily: f.family }}
+                className={f.family === currentFamily ? 'properties-dropdown-item is-active' : 'properties-dropdown-item'}
+                title={isLastOne ? undefined : `${f.label} (우클릭: 목록에서 삭제)`}
+                onClick={() => {
+                  onPick(f.family);
+                  setOpen(false);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  if (isLastOne) return;
+                  removeCustomFont(f.id);
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              className="properties-dropdown-add-item"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <PlusIcon size={11} />
+              폰트 추가
+            </button>
+          </div>,
+          document.body,
+        )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".ttf,.otf,.woff,.woff2"
+        style={{ display: 'none' }}
+        onChange={handleFontFileChange}
+      />
+    </>
   );
 }
 
@@ -440,53 +719,9 @@ function FontPickerRow({
   currentFamily: string;
   onPick: (family: string) => void;
 }) {
-  const customFonts = useFontStore((s) => s.customFonts);
-  const registerFontFile = useFontStore((s) => s.registerFontFile);
-  const visibleBuiltins = useVisibleBuiltinFonts();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFontFileChange: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    void registerFontFile(file)
-      .then((font) => onPick(font.family))
-      .catch(() => {
-        // 폰트 파일이 깨졌거나 브라우저가 파싱하지 못하는 형식 — 조용히 무시(선택 유지).
-      });
-  };
-
   return (
     <Row label="글꼴">
-      <select className="properties-select" value={currentFamily} onChange={(e) => onPick(e.target.value)}>
-        {visibleBuiltins.map((f) => (
-          <option key={f.id} value={f.family}>
-            {f.label}
-          </option>
-        ))}
-        {customFonts.map((f) => (
-          <option key={f.id} value={f.family}>
-            {f.label}
-          </option>
-        ))}
-      </select>
-      <button
-        type="button"
-        className="properties-add-font-btn"
-        title="폰트 파일 추가"
-        onClick={() => fileInputRef.current?.click()}
-      >
-        +
-      </button>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".ttf,.otf,.woff,.woff2"
-        style={{ display: 'none' }}
-        onChange={handleFontFileChange}
-      />
-      {/* 요구사항 3번: 커스텀 업로드 폰트뿐 아니라 기본 제공 폰트도 이 팝오버에서 삭제할 수 있다. */}
-      <FontManagerPopover currentFamily={currentFamily} />
+      <FontDropdown currentFamily={currentFamily} onPick={onPick} />
     </Row>
   );
 }
@@ -553,19 +788,6 @@ function TextSection({
         <p className="properties-range-hint">선택한 구간에만 적용됩니다</p>
       )}
       <FontPickerRow currentFamily={currentFamily} onPick={(family) => applyToRangeOrObject('fontFamily', family)} />
-      <Row label="크기">
-        <select
-          className="properties-select"
-          value={currentSize}
-          onChange={(e) => applyToRangeOrObject('fontSize', Number(e.target.value))}
-        >
-          {sizeOptions.map((s) => (
-            <option key={s} value={s}>
-              {s}px
-            </option>
-          ))}
-        </select>
-      </Row>
       <Row label="줄 간격">
         {/* 요구사항(줄 간격 조절): 부분 서식(hasRange) 대상이 아니라 텍스트 상자 전체의
             속성이므로(TextRun이 아니라 TextObject에 저장됨) 테두리 옵션과 같은 방식으로
@@ -578,7 +800,15 @@ function TextSection({
           onChange={(next) => update({ lineHeight: next }, `line-height:${object.id}`)}
         />
       </Row>
-      <Row label="색상">
+      <Row label="크기">
+        <Dropdown
+          value={currentSize}
+          options={sizeOptions}
+          labelOf={(s) => `${s}px`}
+          onChange={(s) => applyToRangeOrObject('fontSize', s)}
+        />
+      </Row>
+      <Row label="텍스트 색상">
         <ColorPickerPopover
           label="텍스트 색상"
           value={currentColor}
@@ -661,19 +891,6 @@ function TextDefaultsSection() {
   return (
     <>
       <FontPickerRow currentFamily={textFontFamily || DEFAULT_FONT_FAMILY} onPick={setTextFontFamily} />
-      <Row label="크기">
-        <select
-          className="properties-select"
-          value={textFontSize}
-          onChange={(e) => setTextFontSize(Number(e.target.value))}
-        >
-          {sizeOptions.map((s) => (
-            <option key={s} value={s}>
-              {s}px
-            </option>
-          ))}
-        </select>
-      </Row>
       <Row label="줄 간격">
         {/* 요구사항(텍스트 상자 생성 전 줄 간격): TextSection과 동일한 컨트롤을
             toolStore.textLineHeight에 직접 연결한다 — 아직 만들어진 객체가 없으므로
@@ -686,7 +903,10 @@ function TextDefaultsSection() {
           onChange={setTextLineHeight}
         />
       </Row>
-      <Row label="색상">
+      <Row label="크기">
+        <Dropdown value={textFontSize} options={sizeOptions} labelOf={(s) => `${s}px`} onChange={setTextFontSize} />
+      </Row>
+      <Row label="텍스트 색상">
         <ColorPickerPopover label="텍스트 색상" value={textColor} onChange={setTextColor} category="text" />
       </Row>
       <Row label="굵기">
@@ -777,17 +997,20 @@ function ArrowSection({
   return (
     <>
       <Row label="화살촉">
-        <Tile active={arrowHead === 'none'} onClick={() => update({ arrowHead: 'none' })} title="없음">
-          <ArrowHeadIcon style="none" />
-        </Tile>
-        <Tile active={arrowHead === 'open'} onClick={() => update({ arrowHead: 'open' })} title="기존 화살표 모양">
-          <ArrowHeadIcon style="open" />
-        </Tile>
-        <Tile active={arrowHead === 'triangle'} onClick={() => update({ arrowHead: 'triangle' })} title="속 채운 삼각형">
-          <ArrowHeadIcon style="triangle" />
-        </Tile>
+        <TileGroup>
+          <Tile active={arrowHead === 'none'} onClick={() => update({ arrowHead: 'none' })} title="없음">
+            <ArrowHeadIcon style="none" />
+          </Tile>
+          <Tile active={arrowHead === 'open'} onClick={() => update({ arrowHead: 'open' })} title="기존 화살표 모양">
+            <ArrowHeadIcon style="open" />
+          </Tile>
+          <Tile active={arrowHead === 'triangle'} onClick={() => update({ arrowHead: 'triangle' })} title="속 채운 삼각형">
+            <ArrowHeadIcon style="triangle" />
+          </Tile>
+        </TileGroup>
       </Row>
       <LineStyleRow value={lineStyle} onChange={(v) => update({ lineStyle: v })} />
+      <StrokeWidthRow value={object.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} />
       <Row label="색상">
         <ColorPickerPopover
           label="선 색상"
@@ -796,7 +1019,6 @@ function ArrowSection({
           category="shape"
         />
       </Row>
-      <StrokeWidthRow value={object.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} />
       <FrequentColorsRow>
         <PresetSwatchRow
           ids={visibleStrokeIds}
@@ -834,31 +1056,27 @@ function RectangleSection({
 
   return (
     <>
-      <Row label="모서리">
-        <Tile active={!rounded} onClick={() => update({ rounded: false })} title="뾰족">
-          <CornerIcon rounded={false} />
-        </Tile>
-        <Tile active={rounded} onClick={() => update({ rounded: true })} title="둥근 모서리">
-          <CornerIcon rounded={true} />
-        </Tile>
-      </Row>
       <LineStyleRow value={lineStyle} onChange={(v) => update({ lineStyle: v })} />
-      <Row label="테두리 색상">
-        <ColorPickerPopover
-          label="테두리 색상"
-          value={object.strokeColor}
-          onChange={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
-          category="shape"
-        />
-      </Row>
       <StrokeWidthRow value={object.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} />
+      <Row label="모서리">
+        <TileGroup>
+          <Tile active={!rounded} onClick={() => update({ rounded: false })} title="뾰족">
+            <CornerIcon rounded={false} />
+          </Tile>
+          <Tile active={rounded} onClick={() => update({ rounded: true })} title="둥근 모서리">
+            <CornerIcon rounded={true} />
+          </Tile>
+        </TileGroup>
+      </Row>
       <Row label="채우기">
-        <Tile active={!fillEnabled} onClick={() => update({ fillEnabled: false })} title="투명">
-          <FillIcon filled={false} />
-        </Tile>
-        <Tile active={fillEnabled} onClick={() => update({ fillEnabled: true })} title="테두리 색상 채우기">
-          <FillIcon filled={true} />
-        </Tile>
+        <TileGroup>
+          <Tile active={!fillEnabled} onClick={() => update({ fillEnabled: false })} title="투명">
+            <FillIcon filled={false} />
+          </Tile>
+          <Tile active={fillEnabled} onClick={() => update({ fillEnabled: true })} title="테두리 색상 채우기">
+            <FillIcon filled={true} />
+          </Tile>
+        </TileGroup>
       </Row>
       {fillEnabled && (
         <Row label="투명도">
@@ -874,6 +1092,14 @@ function RectangleSection({
           <span className="properties-range-value">{Math.round(fillOpacity * 100)}%</span>
         </Row>
       )}
+      <Row label="테두리 색상">
+        <ColorPickerPopover
+          label="테두리 색상"
+          value={object.strokeColor}
+          onChange={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
+          category="shape"
+        />
+      </Row>
       <FrequentColorsRow>
         <PresetSwatchRow
           ids={visibleStrokeIds}
@@ -914,17 +1140,20 @@ function ArrowDefaultsSection() {
   return (
     <>
       <Row label="화살촉">
-        <Tile active={arrowHead === 'none'} onClick={() => setShapeArrowHead('none')} title="없음">
-          <ArrowHeadIcon style="none" />
-        </Tile>
-        <Tile active={arrowHead === 'open'} onClick={() => setShapeArrowHead('open')} title="기존 화살표 모양">
-          <ArrowHeadIcon style="open" />
-        </Tile>
-        <Tile active={arrowHead === 'triangle'} onClick={() => setShapeArrowHead('triangle')} title="속 채운 삼각형">
-          <ArrowHeadIcon style="triangle" />
-        </Tile>
+        <TileGroup>
+          <Tile active={arrowHead === 'none'} onClick={() => setShapeArrowHead('none')} title="없음">
+            <ArrowHeadIcon style="none" />
+          </Tile>
+          <Tile active={arrowHead === 'open'} onClick={() => setShapeArrowHead('open')} title="기존 화살표 모양">
+            <ArrowHeadIcon style="open" />
+          </Tile>
+          <Tile active={arrowHead === 'triangle'} onClick={() => setShapeArrowHead('triangle')} title="속 채운 삼각형">
+            <ArrowHeadIcon style="triangle" />
+          </Tile>
+        </TileGroup>
       </Row>
       <LineStyleRow value={lineStyle} onChange={setShapeLineStyle} />
+      <StrokeWidthRow value={strokeWidth} onChange={setShapeStrokeWidth} />
       <Row label="색상">
         {/* toolStore.shapeStrokeColor는 프리셋 id('black' 등) 또는 자유 hex를 그대로
             들고 있다가 spawn 시점에 strokeColorValueFor로 해석된다(DrawPreview.tsx도
@@ -932,7 +1161,6 @@ function ArrowDefaultsSection() {
             비교/저장한다. */}
         <ColorPickerPopover label="선 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
       </Row>
-      <StrokeWidthRow value={strokeWidth} onChange={setShapeStrokeWidth} />
       <FrequentColorsRow>
         <PresetSwatchRow
           ids={visibleStrokeIds}
@@ -973,26 +1201,27 @@ function RectangleDefaultsSection() {
 
   return (
     <>
-      <Row label="모서리">
-        <Tile active={!rounded} onClick={() => setShapeRounded(false)} title="뾰족">
-          <CornerIcon rounded={false} />
-        </Tile>
-        <Tile active={rounded} onClick={() => setShapeRounded(true)} title="둥근 모서리">
-          <CornerIcon rounded={true} />
-        </Tile>
-      </Row>
       <LineStyleRow value={lineStyle} onChange={setShapeLineStyle} />
-      <Row label="테두리 색상">
-        <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
-      </Row>
       <StrokeWidthRow value={strokeWidth} onChange={setShapeStrokeWidth} />
+      <Row label="모서리">
+        <TileGroup>
+          <Tile active={!rounded} onClick={() => setShapeRounded(false)} title="뾰족">
+            <CornerIcon rounded={false} />
+          </Tile>
+          <Tile active={rounded} onClick={() => setShapeRounded(true)} title="둥근 모서리">
+            <CornerIcon rounded={true} />
+          </Tile>
+        </TileGroup>
+      </Row>
       <Row label="채우기">
-        <Tile active={!fillEnabled} onClick={() => setShapeFillEnabled(false)} title="투명">
-          <FillIcon filled={false} />
-        </Tile>
-        <Tile active={fillEnabled} onClick={() => setShapeFillEnabled(true)} title="테두리 색상 채우기">
-          <FillIcon filled={true} />
-        </Tile>
+        <TileGroup>
+          <Tile active={!fillEnabled} onClick={() => setShapeFillEnabled(false)} title="투명">
+            <FillIcon filled={false} />
+          </Tile>
+          <Tile active={fillEnabled} onClick={() => setShapeFillEnabled(true)} title="테두리 색상 채우기">
+            <FillIcon filled={true} />
+          </Tile>
+        </TileGroup>
       </Row>
       {fillEnabled && (
         <Row label="투명도">
@@ -1008,6 +1237,9 @@ function RectangleDefaultsSection() {
           <span className="properties-range-value">{Math.round(fillOpacity * 100)}%</span>
         </Row>
       )}
+      <Row label="테두리 색상">
+        <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
+      </Row>
       <FrequentColorsRow>
         <PresetSwatchRow
           ids={visibleStrokeIds}
@@ -1058,6 +1290,15 @@ function FrameSizePresetRow({
   );
 }
 
+/** "A4 절반" 접선 미리보기 전용 선 색상. 실제 프레임(FrameObjectView.tsx)은
+ * 테두리와 같은 def.borderColor를 접선에도 그대로 쓰지만, 다크 테마의
+ * borderColor(#3a3d44)는 배경(#1f2126)과 거의 같은 톤이라 18px 미니 스와치에서는
+ * 사실상 안 보인다 — 아이콘에서만 더 밝은 회색으로 대비를 높인다. */
+const FOLD_LINE_PREVIEW_COLOR: Record<FrameTheme, string> = {
+  plain: '#c2c2c2',
+  dark: '#7a7a7a',
+};
+
 /** FRAME_THEMES 배경을 타일 안에 축소해서 보여주는 미리보기 스와치. showFold이면
  * 실제 프레임과 같은 비율(높이의 90%, 위아래 5%씩 여백)로 접선도 함께 그려준다 —
  * 요구사항(어두운 프레임에서도 A4 절반을 쓸 수 있도록): 배경 테마와 접선 표시 여부가
@@ -1085,7 +1326,7 @@ function FrameStylePreview({ themeId, showFold }: { themeId: FrameTheme; showFol
             top: '2.5%',
             bottom: '2.5%',
             width: 1,
-            background: def.borderColor,
+            background: FOLD_LINE_PREVIEW_COLOR[themeId],
             transform: 'translateX(-50%)',
           }}
         />
@@ -1095,23 +1336,26 @@ function FrameStylePreview({ themeId, showFold }: { themeId: FrameTheme; showFol
 }
 
 /** 배경 테마(plain/dark) 선택 — 접선 표시 여부와 완전히 독립이라 이 값만 바꿔서는
- * A4 절반 상태(centerFold)가 절대 꺼지지 않는다. */
+ * A4 절반 상태(centerFold)가 절대 꺼지지 않는다. 요구사항: 이 행은 "배경색"만
+ * 고르는 자리이므로, 현재 접선이 켜져 있어도 미리보기에는 절대 접선을 함께
+ * 보여주지 않는다(showFold를 그대로 물려받으면 흰 배경 스와치에도 줄이 섞여
+ * 보여 혼동을 준다). */
 function FrameThemeRow({
   active,
-  showFold,
   onChange,
 }: {
   active: FrameTheme;
-  showFold: boolean;
   onChange: (theme: FrameTheme) => void;
 }) {
   return (
     <Row label="배경">
-      {FRAME_THEME_IDS.map((id) => (
-        <Tile key={id} active={active === id} onClick={() => onChange(id)} title={FRAME_THEMES[id].label}>
-          <FrameStylePreview themeId={id} showFold={showFold} />
-        </Tile>
-      ))}
+      <TileGroup>
+        {FRAME_THEME_IDS.map((id) => (
+          <Tile key={id} active={active === id} onClick={() => onChange(id)} title={FRAME_THEMES[id].label}>
+            <FrameStylePreview themeId={id} showFold={false} />
+          </Tile>
+        ))}
+      </TileGroup>
     </Row>
   );
 }
@@ -1129,12 +1373,14 @@ function FrameFoldRow({
 }) {
   return (
     <Row label="A4 절반">
-      <Tile active={!active} onClick={() => onChange(false)} title="접선 없음">
-        <FrameStylePreview themeId={theme} showFold={false} />
-      </Tile>
-      <Tile active={active} onClick={() => onChange(true)} title="정중앙에 접선 표시">
-        <FrameStylePreview themeId={theme} showFold={true} />
-      </Tile>
+      <TileGroup>
+        <Tile active={!active} onClick={() => onChange(false)} title="접선 없음">
+          <FrameStylePreview themeId={theme} showFold={false} />
+        </Tile>
+        <Tile active={active} onClick={() => onChange(true)} title="정중앙에 접선 표시">
+          <FrameStylePreview themeId={theme} showFold={true} />
+        </Tile>
+      </TileGroup>
     </Row>
   );
 }
@@ -1190,33 +1436,45 @@ function FrameSection({
         />
       </Row>
       <Row label="방향">
-        <Tile
-          active={false}
-          onClick={() => update({ width: object.height, height: object.width }, `frame-size:${object.id}`)}
-          title={showFold ? '가로/세로 비율만 전환 (접선 방향 유지)' : '가로/세로 전환'}
-        >
-          <SwapIcon />
-        </Tile>
-        {/* "A4 절반"(접선 표시 중)에서만 의미가 있다 — 위 버튼(비율만 전환)과 달리
-            접선의 분할 방향(좌우↔상하)까지 함께 뒤집어서, 프레임과 접선을 통째로
-            90도 돌린 것처럼 보이게 한다(FrameObject.foldAxis 주석 참고). 배경 테마와는
-            무관하게, showFold 하나로만 판정한다. */}
-        {showFold && (
+        {/* 요구사항: A4 절반(접선 표시 중)이라 옵션이 두 개가 되면, 다른 다중 선택지
+            행과 똑같이 하나의 회색 트랙(TileGroup) 안에 담는다 — 옵션이 하나뿐일
+            때(showFold===false)는 굳이 트랙으로 감싸지 않고 기존처럼 단독 타일로 둔다. */}
+        {showFold ? (
+          <TileGroup>
+            <Tile
+              active={false}
+              onClick={() => update({ width: object.height, height: object.width }, `frame-size:${object.id}`)}
+              title="가로/세로 비율만 전환 (접선 방향 유지)"
+            >
+              <SwapIcon />
+            </Tile>
+            {/* 위 버튼(비율만 전환)과 달리 접선의 분할 방향(좌우↔상하)까지 함께
+                뒤집어서, 프레임과 접선을 통째로 90도 돌린 것처럼 보이게 한다
+                (FrameObject.foldAxis 주석 참고). */}
+            <Tile
+              active={false}
+              onClick={() =>
+                update(
+                  {
+                    width: object.height,
+                    height: object.width,
+                    foldAxis: (object.foldAxis ?? 'vertical') === 'vertical' ? 'horizontal' : 'vertical',
+                  },
+                  `frame-size:${object.id}`,
+                )
+              }
+              title="프레임 전체 회전 (접선 방향도 함께 전환)"
+            >
+              <RotateIcon />
+            </Tile>
+          </TileGroup>
+        ) : (
           <Tile
             active={false}
-            onClick={() =>
-              update(
-                {
-                  width: object.height,
-                  height: object.width,
-                  foldAxis: (object.foldAxis ?? 'vertical') === 'vertical' ? 'horizontal' : 'vertical',
-                },
-                `frame-size:${object.id}`,
-              )
-            }
-            title="프레임 전체 회전 (접선 방향도 함께 전환)"
+            onClick={() => update({ width: object.height, height: object.width }, `frame-size:${object.id}`)}
+            title="가로/세로 전환"
           >
-            <RotateIcon />
+            <SwapIcon />
           </Tile>
         )}
       </Row>
@@ -1225,7 +1483,7 @@ function FrameSection({
           켜져 있던 접선이 꺼지지 않도록, 테마를 바꿀 때도 현재 showFold 값을 그대로
           함께 저장한다(구버전 style:'half' 데이터가 처음 배경을 바꾸는 순간 접선을
           잃지 않게 하는 안전장치이기도 하다). */}
-      <FrameThemeRow active={theme} showFold={showFold} onChange={(next) => update({ style: next, centerFold: showFold })} />
+      <FrameThemeRow active={theme} onChange={(next) => update({ style: next, centerFold: showFold })} />
       <FrameFoldRow theme={theme} active={showFold} onChange={(next) => update({ centerFold: next })} />
     </>
   );
@@ -1270,27 +1528,29 @@ function FrameDefaultsSection() {
         />
       </Row>
       <Row label="방향">
-        <Tile
-          active={false}
-          onClick={() => setFrameSize(frameHeight, frameWidth)}
-          title={frameCenterFold ? '가로/세로 비율만 전환 (접선 방향 유지)' : '가로/세로 전환'}
-        >
-          <SwapIcon />
-        </Tile>
-        {frameCenterFold && (
-          <Tile
-            active={false}
-            onClick={() => {
-              setFrameSize(frameHeight, frameWidth);
-              setFrameFoldAxis(frameFoldAxis === 'vertical' ? 'horizontal' : 'vertical');
-            }}
-            title="프레임 전체 회전 (접선 방향도 함께 전환)"
-          >
-            <RotateIcon />
+        {frameCenterFold ? (
+          <TileGroup>
+            <Tile active={false} onClick={() => setFrameSize(frameHeight, frameWidth)} title="가로/세로 비율만 전환 (접선 방향 유지)">
+              <SwapIcon />
+            </Tile>
+            <Tile
+              active={false}
+              onClick={() => {
+                setFrameSize(frameHeight, frameWidth);
+                setFrameFoldAxis(frameFoldAxis === 'vertical' ? 'horizontal' : 'vertical');
+              }}
+              title="프레임 전체 회전 (접선 방향도 함께 전환)"
+            >
+              <RotateIcon />
+            </Tile>
+          </TileGroup>
+        ) : (
+          <Tile active={false} onClick={() => setFrameSize(frameHeight, frameWidth)} title="가로/세로 전환">
+            <SwapIcon />
           </Tile>
         )}
       </Row>
-      <FrameThemeRow active={frameStyle} showFold={frameCenterFold} onChange={setFrameStyle} />
+      <FrameThemeRow active={frameStyle} onChange={setFrameStyle} />
       <FrameFoldRow theme={frameStyle} active={frameCenterFold} onChange={setFrameCenterFold} />
     </>
   );
@@ -1305,15 +1565,17 @@ function LineStyleRow({
 }) {
   return (
     <Row label="선 스타일">
-      <Tile active={value === 'solid'} onClick={() => onChange('solid')} title="실선">
-        <LineStyleIcon style="solid" />
-      </Tile>
-      <Tile active={value === 'dotted'} onClick={() => onChange('dotted')} title="점선">
-        <LineStyleIcon style="dotted" />
-      </Tile>
-      <Tile active={value === 'dashed'} onClick={() => onChange('dashed')} title="파선">
-        <LineStyleIcon style="dashed" />
-      </Tile>
+      <TileGroup>
+        <Tile active={value === 'solid'} onClick={() => onChange('solid')} title="실선">
+          <LineStyleIcon style="solid" />
+        </Tile>
+        <Tile active={value === 'dotted'} onClick={() => onChange('dotted')} title="점선">
+          <LineStyleIcon style="dotted" />
+        </Tile>
+        <Tile active={value === 'dashed'} onClick={() => onChange('dashed')} title="파선">
+          <LineStyleIcon style="dashed" />
+        </Tile>
+      </TileGroup>
     </Row>
   );
 }
@@ -1321,11 +1583,13 @@ function LineStyleRow({
 function StrokeWidthRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
     <Row label="굵기">
-      {STROKE_WIDTH_PRESETS.map((w) => (
-        <Tile key={w} active={value === w} onClick={() => onChange(w)} title={`${w}px`}>
-          <StrokeWidthIcon width={w} />
-        </Tile>
-      ))}
+      <TileGroup>
+        {STROKE_WIDTH_PRESETS.map((w) => (
+          <Tile key={w} active={value === w} onClick={() => onChange(w)} title={`${w}px`}>
+            <StrokeWidthIcon width={w} />
+          </Tile>
+        ))}
+      </TileGroup>
     </Row>
   );
 }
@@ -1424,17 +1688,7 @@ function AnnotationSection({
     <>
       <FontPickerRow currentFamily={fontFamily || DEFAULT_FONT_FAMILY} onPick={onFontFamilyChange} />
       <Row label="크기">
-        <select
-          className="properties-select"
-          value={fontSize}
-          onChange={(e) => onFontSizeChange(Number(e.target.value))}
-        >
-          {sizeOptions.map((s) => (
-            <option key={s} value={s}>
-              {s}px
-            </option>
-          ))}
-        </select>
+        <Dropdown value={fontSize} options={sizeOptions} labelOf={(s) => `${s}px`} onChange={onFontSizeChange} />
       </Row>
       <Row label="색상">
         <ColorPickerPopover label="주석 색상" value={annotationVisualsFor(color).tick} onChange={onChange} category="annotation" />

@@ -51,7 +51,20 @@ export function useObjectDeleteShortcut() {
 
       if (selectedIds.length > 0) {
         e.preventDefault();
-        useObjectsStore.getState().removeObjects(selectedIds);
+        // 요구사항(Ctrl+G 그룹화): 선택된 객체가 그룹에 속해 있으면 같은 그룹의
+        // 나머지 멤버도 함께 삭제 대상에 포함시킨다(드래그 이동과 동일한 규칙).
+        const expandedIds = new Set<string>();
+        for (const id of selectedIds) {
+          for (const memberId of useObjectsStore.getState().getGroupMemberIds(id)) {
+            expandedIds.add(memberId);
+          }
+        }
+        // 요구사항(객체 잠금): 잠긴 객체는 삭제 대상에서 제외한다.
+        const objects = useObjectsStore.getState().objects;
+        const deletableIds = Array.from(expandedIds).filter((id) => !objects[id]?.locked);
+        if (deletableIds.length > 0) {
+          useObjectsStore.getState().removeObjects(deletableIds);
+        }
         useInteractionStore.getState().deselect();
       }
     };

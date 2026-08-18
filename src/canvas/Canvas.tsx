@@ -16,6 +16,7 @@ import { useDrawTextTool } from './interaction/useDrawTextTool';
 import { useMarqueeSelect } from './interaction/useMarqueeSelect';
 import { useUndoRedoShortcut } from './interaction/useUndoRedoShortcut';
 import { useClipboardShortcuts } from './interaction/useClipboardShortcuts';
+import { useGroupShortcut } from './interaction/useGroupShortcut';
 import { clientToWorld, registerCanvasContainer } from '../utils/coords';
 import { spawnFrameAt, spawnImageAt, findFrameAt } from './actions';
 import { ObjectView } from '../objects/ObjectView';
@@ -28,6 +29,7 @@ import { DrawPreview } from './DrawPreview';
 import { HighlightDragPreview } from './HighlightDragPreview';
 import { AlignmentGuideOverlay } from './AlignmentGuideOverlay';
 import { PropertiesPanel } from './PropertiesPanel';
+import { CanvasSearch } from './CanvasSearch';
 import './Canvas.css';
 
 const GRID_SIZE = 40; // world 단위. zoom에 따라 화면상 픽셀 크기가 변한다.
@@ -38,7 +40,6 @@ export function Canvas() {
   const zoom = useViewportStore((s) => s.zoom);
   const panX = useViewportStore((s) => s.panX);
   const panY = useViewportStore((s) => s.panY);
-  const reset = useViewportStore((s) => s.reset);
 
   // 주의: getOrderedObjects()처럼 매번 새 배열을 만드는 메서드를 셀렉터로 직접 쓰면 안 된다.
   // zustand(useSyncExternalStore)는 getSnapshot이 매 호출마다 참조가 다르면 "무한 루프"로 보고
@@ -68,6 +69,7 @@ export function Canvas() {
   useDrawTextTool(containerRef);
   useUndoRedoShortcut();
   useClipboardShortcuts();
+  useGroupShortcut();
   const { cursor, isSpacePressed } = usePan(containerRef);
   // Phase 7: 마퀴 선택은 usePan의 isSpacePressed를 알아야 스페이스+드래그(pan)와
   // 충돌하지 않는다 — 그래서 usePan 다음에 호출한다(useMarqueeSelect.ts 주석 참고).
@@ -186,23 +188,7 @@ export function Canvas() {
       onDrop={handleDrop}
       onDragOver={handleDragOver}
     >
-      <div className="canvas-hud">
-        <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={reset}>
-          뷰 초기화
-        </button>
-        <span className="canvas-hud-hint">
-          {activeTool === 'select' && '스페이스+드래그 또는 휠클릭 드래그: 이동 · 휠: 확대/축소'}
-          {activeTool === 'highlight' && '텍스트를 드래그하면 형광펜이 칠해집니다'}
-          {activeTool === 'annotation' && '텍스트를 드래그하면 그 위에 주석이 생성됩니다'}
-          {activeTool === 'text' && '캔버스를 드래그하면 그 크기로 텍스트 상자가 생성됩니다'}
-          {activeTool === 'frame' && '캔버스를 클릭하면 그 자리에 프레임이 생성됩니다'}
-          {activeTool === 'image' && '캔버스를 클릭하면 파일 선택 창이 열립니다 · 드래그 앤 드롭 또는 Ctrl+V로도 넣을 수 있습니다'}
-          {(activeTool === 'arrow' || activeTool === 'rectangle') &&
-            '캔버스를 드래그하면 그 방향으로 도형이 그려집니다'}
-        </span>
-      </div>
-
+      <CanvasSearch />
       <Toolbar />
       <PropertiesPanel />
       <ObjectContextMenu />
@@ -225,11 +211,18 @@ export function Canvas() {
         {objects.map((object) => (
           <ObjectView key={object.id} object={object} isSpacePressed={isSpacePressed} />
         ))}
-        <DrawPreview />
-        <HighlightDragPreview />
-        <AlignmentGuideOverlay />
-        <MarqueeOverlay />
-        <SelectionOverlay />
+        {/* 요구사항(내보내기): 이 다섯 개는 전부 편집 중에만 보이는 UI chrome(그리기
+            미리보기·마퀴·정렬 가이드·선택 테두리)이라 PNG/JPG/PDF로 내보낼 때는
+            같이 찍히면 안 된다. data-export-exclude 하나로 canvas/actions.ts의
+            exportFrame이 html-to-image filter에서 통째로 건너뛴다 — position:static
+            래퍼라 안의 절대 위치 자식들의 좌표 기준(canvas-world)에는 영향이 없다. */}
+        <div data-export-exclude="true">
+          <DrawPreview />
+          <HighlightDragPreview />
+          <AlignmentGuideOverlay />
+          <MarqueeOverlay />
+          <SelectionOverlay />
+        </div>
       </div>
     </div>
   );

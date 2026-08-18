@@ -12,6 +12,19 @@ export interface BaseObject {
   zIndex: number;
   createdAt: number;
   updatedAt: number;
+  /** 요구사항(객체 잠금): true면 이동/크기조절/삭제/내용 편집이 모두 막힌다(선택 및
+   * 우클릭 메뉴 열람은 계속 가능 — 잠금 해제 자체가 그 메뉴에 있어야 하므로).
+   * undefined는 false(잠기지 않음, 기존 기본값)와 동일. useObjectDrag/useObjectResize/
+   * useObjectDeleteShortcut/TextObjectView 등 상호작용을 다루는 모든 훅이 이 필드를
+   * 확인한다. */
+  locked?: boolean;
+  /** 요구사항(Ctrl+G 그룹화): 같은 groupId를 가진 객체들은 "가벼운 그룹"을 이룬다 —
+   * 그룹 멤버 중 하나를 드래그하거나 삭제하면 같은 groupId를 가진 나머지도 함께
+   * 움직이거나 지워진다(objectsStore.getGroupMemberIds 참고). 클릭으로 개별 선택·
+   * 편집·리사이즈하는 것은 그룹과 무관하게 항상 그대로 가능하다 — Frame처럼 DOM
+   * 부모-자식 관계가 아니라 순수 논리적 묶음이다. undefined/null은 "어느 그룹에도
+   * 속하지 않음"과 동일. */
+  groupId?: string | null;
 }
 
 import type { TextLine } from '../objects/text/indentation/types';
