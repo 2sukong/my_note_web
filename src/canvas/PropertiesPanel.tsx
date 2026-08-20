@@ -46,6 +46,9 @@ const ANNOTATION_FONT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24];
  * 더 얇은 굵기(1)를 추가해 총 3단계로 좁혔다 — 두껍고 각진 화살표/사각형 선보다
  * 가는 선을 기본으로 쓰고 싶다는 요구사항. */
 const STROKE_WIDTH_PRESETS = [1, 1.5, 2.5];
+/** 요구사항(형광펜 굵기 조절): 이미지 위 직선 형광펜 전용 — FONT_SIZE_PRESETS와 같은
+ * "드롭다운 + px 라벨" 디자인을 그대로 재사용한다(Row label="굵기" + Dropdown). */
+const HIGHLIGHT_THICKNESS_PRESETS = [2, 4, 6, 8, 10, 14, 18, 24];
 
 /**
  * Phase 8: 선택된 객체 종류에 따라 그 객체에 필요한 스타일 옵션만 보여주는 오른쪽
@@ -227,9 +230,23 @@ function PanelShell({ title, onClose, children }: { title: string; onClose: () =
 
   useEffect(() => {
     function handlePointerDown(e: PointerEvent) {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (!panelRef.current || panelRef.current.contains(e.target as Node)) return;
+      // 버그 수정: 캔버스(.canvas-root) 내부 클릭은 자체 핸들러(배경 클릭으로 프레임/
+      // 이미지 생성, 텍스트 드래그로 형광펜/주석 커밋 등)가 activeTool/selection을
+      // 이미 알맞게 처리한다. 그 클릭의 pointerdown 단계에서 여기가 먼저 onClose
+      // (예: setTool('select'))를 호출해버리면, 뒤이어 오는 click/pointerup 시점엔
+      // activeTool이 이미 'select'로 바뀐 뒤라 프레임 생성이나 형광펜/주석 드래그
+      // 커밋이 조용히 무시됐다 — 캔버스 밖(파일트리 사이드바 등) 클릭에만 반응해야 한다.
+      if ((e.target as HTMLElement).closest('.canvas-root')) return;
+      // 버그 수정(드롭다운으로 값을 고르면 사이드바가 닫힘): Dropdown/FontDropdown의
+      // 옵션 목록은 document.body에 portal로 띄워져(properties-dropdown-list) DOM상
+      // panelRef의 자식이 아니다 — 그래서 옵션을 클릭하면(pointerdown이 click보다
+      // 먼저 발생) 위 panelRef.current.contains 검사를 통과하지 못하고 여기로 와서
+      // onClose(예: 선택 없을 때는 setTool('select'))가 먼저 실행돼버려, 값을 고른
+      // 직후 도구가 꺼지는 문제가 있었다(형광펜 굵기 드롭다운뿐 아니라 텍스트/주석
+      // "크기" 드롭다운도 동일하게 영향받음). 포털 목록도 패널의 일부로 취급한다.
+      if ((e.target as HTMLElement).closest('.properties-dropdown-list')) return;
+      onClose();
     }
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
@@ -1640,6 +1657,14 @@ function HighlightDefaultsSection() {
   const setHighlightColor = useToolStore((s) => s.setHighlightColor);
   const eraserActive = useToolStore((s) => s.highlightEraserActive);
   const setHighlightEraserActive = useToolStore((s) => s.setHighlightEraserActive);
+  // 요구사항(형광펜 굵기 조절): 이미지 위 직선 형광펜에만 쓰인다(텍스트/주석 형광펜은
+  // 줄 높이를 그대로 따르는 알약 모양이라 굵기 개념이 없다) — useImageHighlightTool.ts가
+  // 새 하이라이트를 커밋할 때 이 값을 읽는다.
+  const highlightThickness = useToolStore((s) => s.highlightThickness);
+  const setHighlightThickness = useToolStore((s) => s.setHighlightThickness);
+  const thicknessOptions = HIGHLIGHT_THICKNESS_PRESETS.includes(highlightThickness)
+    ? HIGHLIGHT_THICKNESS_PRESETS
+    : [...HIGHLIGHT_THICKNESS_PRESETS, highlightThickness].sort((a, b) => a - b);
   return (
     <>
       {/* 요구사항(형광펜 지우개): 색상 선택과 별개로, 이 지우개가 켜져 있는 동안은
@@ -1654,6 +1679,16 @@ function HighlightDefaultsSection() {
         >
           <EraserIcon active={eraserActive} />
         </Tile>
+      </Row>
+      {/* 요구사항(형광펜 굵기 조절): TextDefaultsSection의 "크기" 행과 완전히 같은
+          디자인(Dropdown + px 라벨)을 그대로 재사용한다. */}
+      <Row label="굵기">
+        <Dropdown
+          value={highlightThickness}
+          options={thicknessOptions}
+          labelOf={(s) => `${s}px`}
+          onChange={setHighlightThickness}
+        />
       </Row>
       <HighlightSection color={highlightColor} onChange={setHighlightColor} />
     </>

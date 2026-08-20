@@ -47,6 +47,11 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 결과 '텍스트'/'프레임'/'이미지'/'화살표'/'사각형' 도구가 활성화돼 있어도
   // 기존 텍스트 객체는 항상 정상적으로 드래그 이동할 수 있다.
   const isTextSelectMode = object.type === 'text' && (activeTool === 'highlight' || activeTool === 'annotation');
+  // 요구사항(이미지 전용 직선 형광펜): 형광펜 도구가 활성화된 동안 Image 객체 위에서
+  // 드래그하면 "이미지 이동"이 아니라 "직선 형광펜 긋기"여야 한다 — isTextSelectMode와
+  // 완전히 같은 이유로 drag 핸들러 자체를 떼서, pointerdown이 stopPropagation 없이
+  // 캔버스 레벨 리스너(useImageHighlightTool.ts)까지 버블링되게 한다.
+  const isImageHighlightMode = object.type === 'image' && activeTool === 'highlight';
   // Phase 6: 화살표/사각형 도구가 활성화된 동안엔 Frame 위에서도 드래그가 "Frame
   // 이동"이 아니라 "도형 그리기"여야 한다(요구사항 — Frame 위에서 도형이 생성되지
   // 않던 버그 수정). Frame은 이 pointerdown으로 스스로 할 일이 없으므로(자신의
@@ -63,7 +68,7 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 타입에 대해 drag 핸들러를 아예 붙이지 않는다. 실제 테두리/라벨 전용 드래그는
   // FrameObjectView.tsx가 자기 자신의 useObjectDrag 인스턴스로 별도 처리한다.
   const isFrame = object.type === 'frame';
-  const skipDrag = isTextEditing || isTextSelectMode || isDrawPassthrough || isFrame || isSpacePressed;
+  const skipDrag = isTextEditing || isTextSelectMode || isImageHighlightMode || isDrawPassthrough || isFrame || isSpacePressed;
   const drag = useObjectDrag(object.id);
 
   const style: CSSProperties = {
@@ -81,7 +86,9 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
       ? 'text'
       : isTextSelectMode
         ? 'text'
-        : isSpacePressed
+        : isImageHighlightMode
+          ? 'crosshair'
+          : isSpacePressed
           ? 'inherit'
           // 요구사항(객체 잠금): 잠긴 객체는 이동할 수 없다는 걸 커서로도 알려준다
           // (선택 자체는 여전히 가능하므로 pointer-events는 그대로 둔다).

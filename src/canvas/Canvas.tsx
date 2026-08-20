@@ -8,6 +8,7 @@ import { useFontStore } from '../store/fontStore';
 import { useWheelZoom } from './viewport/useWheelZoom';
 import { usePan } from './viewport/usePan';
 import { useTextSelectionTools } from './interaction/useTextSelectionTools';
+import { useImageHighlightTool } from './interaction/useImageHighlightTool';
 import { useObjectDeleteShortcut } from './interaction/useObjectDeleteShortcut';
 import { useImagePaste } from './interaction/useImagePaste';
 import { useTextPaste } from './interaction/useTextPaste';
@@ -62,6 +63,7 @@ export function Canvas() {
 
   useWheelZoom(containerRef);
   useTextSelectionTools(containerRef);
+  useImageHighlightTool(containerRef);
   useObjectDeleteShortcut();
   useImagePaste();
   useTextPaste();

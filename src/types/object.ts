@@ -77,6 +77,36 @@ export interface ImageObject extends BaseObject {
    * (objectsStore.moveObjectTo 참고). Frame과 DOM 부모-자식 관계는 아니다.
    */
   frameId?: string | null;
+  /**
+   * 요구사항(이미지 전용 직선 형광펜): 이미지는 TextObject처럼 실제 텍스트 노드가
+   * 없어 브라우저 네이티브 선택 기반 하이라이트(TextHighlight)를 쓸 수 없다 —
+   * 대신 드래그 시작점→끝점을 잇는 직선 하나로 하이라이트를 표현한다. 좌표는
+   * 절대 px가 아니라 이 객체의 width/height에 대한 비율(0~1)로 저장한다 —
+   * 그래야 이미지를 리사이즈해도(가로세로 비율이 뒤틀려도) 두 끝점이 같은 비율로
+   * 함께 움직여서 선이 항상 직선을 유지한 채 이미지와 정확히 같이 늘어난다.
+   */
+  highlights?: ImageHighlight[];
+}
+
+/** objects/image/ImageObjectView.tsx의 SVG 오버레이가 그리는 직선 하나.
+ * x1/y1/x2/y2는 모두 소속 ImageObject의 width/height에 대한 비율(0~1). */
+export interface ImageHighlight {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  /** TextHighlight.color와 같은 이유로 string — 프리셋 id 또는 자유 hex. */
+  color: string;
+  /**
+   * 요구사항(형광펜 굵기 조절/리사이즈 스케일링): 굵기를 절대 px가 아니라 "생성
+   * 당시 이미지의 짧은 변(min(width,height)) 대비 비율"로 저장한다 — x1/y1/x2/y2와
+   * 완전히 같은 이유로, 이미지를 리사이즈해도 굵기가 그 변화 비율만큼 함께
+   * 늘고 줄어들게 하기 위함(objects/image/imageHighlightGeometry.ts의
+   * resolveHighlightStrokeWidth 참고). undefined는 이 필드가 생기기 전(구버전)에
+   * 만들어진 하이라이트 — 그 시절과 같은 고정 비율로 해석된다.
+   */
+  thicknessRatio?: number;
 }
 
 /**

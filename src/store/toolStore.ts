@@ -71,6 +71,13 @@ interface ToolState {
    * 'highlight' 도구가 켜져 있을 때만 의미가 있다 — 다른 도구로 전환하면 자동으로
    * 꺼진다(아래 setTool 참고). */
   highlightEraserActive: boolean;
+  /**
+   * 요구사항(형광펜 굵기 조절): 이미지 위 직선 형광펜(objects/image)을 새로 그릴 때
+   * 쓰일 굵기(px, 사이드바 "굵기" 드롭다운 — TextDefaultsSection의 "크기"와 같은
+   * 디자인). 텍스트/주석 형광펜(줄 높이를 그대로 따르는 알약 모양)은 이 값을 전혀
+   * 읽지 않는다 — 이미지 형광펜에만 의미가 있다.
+   */
+  highlightThickness: number;
   /** 'annotation' 도구로 새 주석을 만들 때 쓰일 색. 위 highlightColor와 같은 이유로 string. */
   annotationColor: string;
   /** 요구사항(폰트 목록 통합): 새 주석을 만들 때 쓰일 기본 글꼴 — 본문 텍스트와
@@ -128,6 +135,7 @@ interface ToolState {
   setTool: (tool: ToolId) => void;
   setHighlightColor: (color: string) => void;
   setHighlightEraserActive: (active: boolean) => void;
+  setHighlightThickness: (thickness: number) => void;
   setAnnotationColor: (color: string) => void;
   setAnnotationFontFamily: (family: string) => void;
   setAnnotationFontSize: (size: number) => void;
@@ -157,6 +165,7 @@ export const useToolStore = create<ToolState>((set) => ({
   activeTool: 'select',
   highlightColor: 'yellow',
   highlightEraserActive: false,
+  highlightThickness: 8,
   annotationColor: 'red',
   annotationFontFamily: DEFAULT_FONT_FAMILY,
   // objects/text/AnnotationBubble.tsx의 BUBBLE_FONT_SIZE_BASE와 같은 값 — 컴포넌트
@@ -187,6 +196,7 @@ export const useToolStore = create<ToolState>((set) => ({
   // 색을 고르는 것은 "칠하겠다"는 의도이므로 지우개 모드를 함께 끈다.
   setHighlightColor: (color) => set({ highlightColor: color, activeTool: 'highlight', highlightEraserActive: false }),
   setHighlightEraserActive: (active) => set({ highlightEraserActive: active, activeTool: 'highlight' }),
+  setHighlightThickness: (thickness) => set({ highlightThickness: thickness }),
   setAnnotationColor: (color) => set({ annotationColor: color, activeTool: 'annotation' }),
   setAnnotationFontFamily: (family) => set({ annotationFontFamily: family }),
   setAnnotationFontSize: (size) => set({ annotationFontSize: size }),

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { produceWithPatches } from 'immer';
-import type { CanvasObject, TextObject } from '../types/object';
+import type { CanvasObject, ImageHighlight, TextObject } from '../types/object';
 import { createPlainLine } from '../objects/text/indentation/types';
 import type { TextAnnotation, TextLine } from '../objects/text/indentation/types';
 import {
@@ -250,6 +250,25 @@ interface ObjectsState {
   /** 요구사항(형광펜 지우개): eraseHighlightSegments의 annotation 버전 — annotation.text
    * 안에서 드래그로 선택한 구간과 겹치는 하이라이트만 트리밍/삭제한다. */
   eraseAnnotationHighlightRange: (objectId: string, lineId: string, annotationId: string, start: number, end: number) => void;
+
+  /**
+   * 요구사항(이미지 전용 직선 형광펜): x1/y1/x2/y2는 모두 해당 ImageObject의
+   * width/height에 대한 비율(0~1) — useImageHighlightTool.ts가 드래그 시작/끝점을
+   * 그 시점의 object.width/height로 나눠서 넘긴다. thicknessRatio도 같은 이유로
+   * 절대 px가 아니라 비율(objects/image/imageHighlightGeometry.ts의 thicknessRatioFor).
+   */
+  addImageHighlight: (
+    objectId: string,
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    color: string,
+    thicknessRatio: number,
+  ) => void;
+  /** 요구사항(이미지 형광펜 지우개): id로 콕 집어 여러 개를 한 번에 제거한다
+   * (useImageHighlightTool.ts가 드래그 선분과 겹치는 하이라이트들을 미리 골라 넘긴다). */
+  removeImageHighlights: (objectId: string, highlightIds: string[]) => void;
 
   /**
    * zIndex 오름차순으로 정렬된 객체 목록 (렌더 순서 = 쌓임 순서).
@@ -596,6 +615,24 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
           annotations: (line.annotations ?? []).filter((a) => a.id !== annotationId),
         })),
       ),
+
+    addImageHighlight: (objectId, x1, y1, x2, y2, color, thicknessRatio) =>
+      mutate((draft) => {
+        const existing = draft[objectId];
+        if (existing?.type !== 'image') return;
+        const highlight: ImageHighlight = { id: createId(), x1, y1, x2, y2, color, thicknessRatio };
+        existing.highlights = [...(existing.highlights ?? []), highlight];
+        existing.updatedAt = now();
+      }),
+
+    removeImageHighlights: (objectId, highlightIds) =>
+      mutate((draft) => {
+        const existing = draft[objectId];
+        if (existing?.type !== 'image' || !existing.highlights?.length) return;
+        const idSet = new Set(highlightIds);
+        existing.highlights = existing.highlights.filter((h) => !idSet.has(h.id));
+        existing.updatedAt = now();
+      }),
 
     getOrderedObjects: () => Object.values(get().objects).sort((a, b) => a.zIndex - b.zIndex),
 
