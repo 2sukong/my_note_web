@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ImageObject } from '../../types/object';
 import { getCachedImageUrl, loadImageUrl } from './imageStore';
-import { useImageLightboxStore } from '../../store/imageLightboxStore';
+import { useImageCropStore } from '../../store/imageCropStore';
+import { useInteractionStore } from '../../store/interactionStore';
 import { useImageHighlightDraftStore } from '../../store/imageHighlightDraftStore';
 import { useToolStore } from '../../store/toolStore';
 import { highlightBackgroundFor } from '../text/highlightColors';
@@ -42,6 +43,36 @@ export function ImageObjectView({ object }: { object: ImageObject }) {
     };
   }, [object.imageId]);
 
+  // 요구사항(이미지 자르기): 더블클릭하면 자르기 모드로 들어간다(예전엔 더블클릭이
+  // 확대 보기였는데, 그 기능은 제거하고 이 자리를 자르기로 대체했다 — 확대는 나중에
+  // 별도의 "읽기 모드"에서 다시 만들 예정). canvas/ImageCropOverlay.tsx가 실제
+  // 자르기 UI(잘려나갈 부분 흐리게 표시 + 8방향 핸들)를 world 좌표 기준 형제
+  // 컴포넌트로 그린다 — 그래야 이 객체의 로컬 stacking context에 갇히지 않고 다른
+  // 객체들 위로 흘러넘쳐 보일 수 있다(이 컴포넌트 자신은 자르는 동안 아무것도
+  // 그리지 않는다, 아래 참고).
+  const isCropping = useImageCropStore((s) => s.croppingObjectId === object.id);
+  const isSingleSelected = useInteractionStore(
+    (s) => s.selectedIds.length === 1 && s.selectedIds[0] === object.id,
+  );
+
+  // 자르기 모드 종료: 이 객체가 더 이상 단독 선택 상태가 아니게 되면(다른 곳 클릭,
+  // 다른 객체 선택 등) 자동으로 빠져나온다. 켜져 있는 동안만 Escape/Enter도 감시한다.
+  useEffect(() => {
+    if (!isCropping) return;
+    if (!isSingleSelected) {
+      useImageCropStore.getState().stopCrop();
+      return;
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        useImageCropStore.getState().stopCrop();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isCropping, isSingleSelected]);
+
   if (!url || failed) {
     return (
       <div
@@ -66,30 +97,86 @@ export function ImageObjectView({ object }: { object: ImageObject }) {
     );
   }
 
+  // 요구사항(이미지 자르기): cropWidth/Height가 있으면(=한 번이라도 잘랐으면) 그
+  // 영역만 레터박스 없이 정확히 채워서 보여준다 — 없으면(기존 이미지 포함) 이 기능
+  // 도입 전과 완전히 동일한 objectFit:'contain' 렌더링을 그대로 쓴다(하위 호환).
+  const hasCrop = object.cropWidth != null && object.cropHeight != null;
+
   return (
-    // 요구사항(이미지 더블클릭 시 확대): <img> 자신은 pointerEvents:'none'이라
-    // 더블클릭을 직접 받을 수 없다(아래 주석 참고) — 그래서 이 wrapper div가
-    // 대신 받는다. onDoubleClick은 ObjectView가 이미 처리한 pointerdown 이후에
-    // 별개로 발생하는 이벤트라 기존 드래그/선택 로직과 충돌하지 않는다.
-    <div style={{ width: '100%', height: '100%' }} onDoubleClick={() => useImageLightboxStore.getState().open(url)}>
+    <div
+      style={{ width: '100%', height: '100%' }}
+      onDoubleClick={() => {
+        if (object.locked) return;
+        useImageCropStore.getState().startCrop(object.id);
+      }}
+    >
+      {isCropping ? null : hasCrop ? (
+        <CroppedImageDisplay object={object} url={url} onError={() => setFailed(true)} />
+      ) : (
+        <img
+          src={url}
+          draggable={false}
+          onError={() => setFailed(true)}
+          alt=""
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            borderRadius: 4,
+            display: 'block',
+            // 객체 이동 드래그는 항상 ObjectView가 감싼 부모 div의 몫이다 — 이미지
+            // 자신은 pointer 이벤트를 받지 않게 해서 네이티브 이미지 드래그/우클릭 저장
+            // 메뉴 등과 우리 커스텀 드래그 로직이 충돌하지 않도록 한다.
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+      {!isCropping && <ImageHighlightOverlay object={object} />}
+    </div>
+  );
+}
+
+/**
+ * 요구사항(이미지 자르기): 크롭된 영역(cropX/Y/Width/Height, 자연 픽셀)이 정확히
+ * object.width/height를 가득 채우도록, 원본 이미지를 확대/이동한 채 overflow:hidden
+ * 컨테이너 안에 넣는다 — canvas/ImageCropOverlay.tsx가 자르기 도중 보여주는 미리보기와
+ * 완전히 같은 배율/이동 계산을 공유한다(그래야 자르기를 끝냈을 때 보이는 결과가
+ * 미리보기와 정확히 일치한다).
+ */
+function CroppedImageDisplay({
+  object,
+  url,
+  onError,
+}: {
+  object: ImageObject;
+  url: string;
+  onError: () => void;
+}) {
+  const cropX = object.cropX ?? 0;
+  const cropY = object.cropY ?? 0;
+  const cropWidth = object.cropWidth ?? object.naturalWidth;
+  const cropHeight = object.cropHeight ?? object.naturalHeight;
+  const scaleX = object.width / cropWidth;
+  const scaleY = object.height / cropHeight;
+
+  return (
+    <div style={{ width: '100%', height: '100%', overflow: 'hidden', position: 'relative', borderRadius: 4 }}>
       <img
         src={url}
         draggable={false}
-        onError={() => setFailed(true)}
+        onError={onError}
         alt=""
         style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          borderRadius: 4,
+          position: 'absolute',
+          left: -cropX * scaleX,
+          top: -cropY * scaleY,
+          width: object.naturalWidth * scaleX,
+          height: object.naturalHeight * scaleY,
+          maxWidth: 'none',
           display: 'block',
-          // 객체 이동 드래그는 항상 ObjectView가 감싼 부모 div의 몫이다 — 이미지
-          // 자신은 pointer 이벤트를 받지 않게 해서 네이티브 이미지 드래그/우클릭 저장
-          // 메뉴 등과 우리 커스텀 드래그 로직이 충돌하지 않도록 한다.
           pointerEvents: 'none',
         }}
       />
-      <ImageHighlightOverlay object={object} />
     </div>
   );
 }

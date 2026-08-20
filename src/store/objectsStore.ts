@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { produceWithPatches } from 'immer';
 import type { CanvasObject, ImageHighlight, TextObject } from '../types/object';
-import { createPlainLine } from '../objects/text/indentation/types';
 import type { TextAnnotation, TextLine } from '../objects/text/indentation/types';
 import {
   createRangeId,
@@ -110,40 +109,6 @@ export function createDemoObjects(): Record<string, CanvasObject> {
   const seed: CanvasObject[] = [
     {
       id: createId(),
-      type: 'text',
-      x: 100,
-      y: 100,
-      width: 260,
-      height: 110,
-      rotation: 0,
-      zIndex: 1,
-      createdAt: t,
-      updatedAt: t,
-      lines: [
-        createPlainLine('필로폰 : 각성제 ex) 히로뽕, 메스암페타민'),
-        createPlainLine('더블클릭해서 편집해보세요'),
-      ],
-      baseFontSize: 16,
-      color: '#222222',
-    },
-    {
-      id: createId(),
-      type: 'image',
-      x: 420,
-      y: 260,
-      width: 140,
-      height: 140,
-      rotation: 0,
-      zIndex: 2,
-      createdAt: t,
-      updatedAt: t,
-      imageId: '',
-      naturalWidth: 140,
-      naturalHeight: 140,
-      aspectRatioLocked: true,
-    },
-    {
-      id: createId(),
       type: 'frame',
       x: 700,
       y: 80,
@@ -186,6 +151,14 @@ interface ObjectsState {
   ) => void;
   moveObjectTo: (id: string, x: number, y: number) => void;
   resizeObjectTo: (id: string, box: { x: number; y: number; width: number; height: number }) => void;
+  /** ImageObject 전용: resizeObjectTo와 같은 원리로 box(x/y/width/height)를 갱신하면서,
+   * 동시에 자연 픽셀 기준 크롭 영역(cropX/Y/Width/Height)도 함께 갱신한다
+   * (canvas/interaction/useImageCrop.ts, cropMath.ts 참고). */
+  cropObjectTo: (
+    id: string,
+    box: { x: number; y: number; width: number; height: number },
+    crop: { cropX: number; cropY: number; cropWidth: number; cropHeight: number },
+  ) => void;
   /** TextObject 전용: lines 배열을 통째로 교체한다 (Enter/Backspace/anchor 갱신 등). */
   setTextLines: (id: string, lines: TextLine[]) => void;
 
@@ -448,6 +421,21 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
         target.height = box.height;
         target.updatedAt = now();
       }, `resize:${id}`),
+
+    cropObjectTo: (id, box, crop) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'image') return;
+        target.x = box.x;
+        target.y = box.y;
+        target.width = box.width;
+        target.height = box.height;
+        target.cropX = crop.cropX;
+        target.cropY = crop.cropY;
+        target.cropWidth = crop.cropWidth;
+        target.cropHeight = crop.cropHeight;
+        target.updatedAt = now();
+      }, `crop:${id}`),
 
     setTextLines: (id, lines) =>
       mutate((draft) => {

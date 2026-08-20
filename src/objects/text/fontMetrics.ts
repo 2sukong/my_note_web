@@ -73,3 +73,18 @@ export function fontHeightScaleFor(fontFamily: string): number {
   ratioCache.set(key, clamped);
   return clamped;
 }
+
+/**
+ * 버그 수정(새로고침 직후 커스텀 글꼴의 주석 간격이 계속 어긋남): 페이지를 새로고침하면
+ * 커스텀 글꼴은 fontStore.loadPersistedFonts()가 IndexedDB에서 비동기로 다시 읽어
+ * document.fonts에 등록한다 — 그런데 TextObjectView는 그 등록이 끝나기 전에도 먼저
+ * 마운트되어 fontHeightScaleFor를 호출할 수 있다. 이 시점엔 canvas 2D의 ctx.font가
+ * 아직 등록되지 않은 family를 조용히 폴백 글꼴로 대체해 측정하므로, 완전히 틀린
+ * 비율이 나온다 — 그리고 위 ratioCache는 한 번 계산되면 영원히 그대로라 실제 글꼴이
+ * 등록된 뒤에도 다시 재보 계산되지 않았다. fontStore.ts가 document.fonts.add로 글꼴을
+ * (실제로 로드가 끝난 뒤에) 등록할 때마다 이 함수를 호출해 캐시를 통째로 비운다 —
+ * 그러면 다음 호출에서 이미 로드된 실제 글꼴로 다시 정확하게 측정한다.
+ */
+export function clearFontHeightScaleCache(): void {
+  ratioCache.clear();
+}

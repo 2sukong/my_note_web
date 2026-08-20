@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { deleteFontRecord, loadAllFontRecords, saveFontRecord } from './fontPersistence';
+import { clearFontHeightScaleCache } from '../objects/text/fontMetrics';
 
 export interface CustomFont {
   id: string;
@@ -97,6 +98,7 @@ export const useFontStore = create<FontState>((set, get) => ({
     const fontFace = new FontFace(family, buffer);
     await fontFace.load(); // 실제로 파싱 가능한 폰트 파일인지 여기서 검증됨(실패 시 reject)
     document.fonts.add(fontFace);
+    clearFontHeightScaleCache(); // fontMetrics.ts 참고 — 이 family로 잘못 캐시된 측정값이 있으면 버린다.
 
     const label = file.name.replace(/\.[^./\\]+$/, '').trim().slice(0, 40) || '업로드한 폰트';
     const entry: CustomFont = { id, label, family, fontFace };
@@ -140,6 +142,7 @@ export const useFontStore = create<FontState>((set, get) => ({
         }
       }
       if (loaded.length === 0) return;
+      clearFontHeightScaleCache(); // fontMetrics.ts 참고 — 새로고침 직후 폴백 글꼴로 잘못 측정됐을 수 있는 캐시를 버린다.
       set({ customFonts: [...get().customFonts, ...loaded] });
     })();
     return loadPersistedFontsPromise;

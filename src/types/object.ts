@@ -86,6 +86,19 @@ export interface ImageObject extends BaseObject {
    * 함께 움직여서 선이 항상 직선을 유지한 채 이미지와 정확히 같이 늘어난다.
    */
   highlights?: ImageHighlight[];
+  /**
+   * 요구사항(이미지 자르기): 원본 이미지(naturalWidth x naturalHeight) 안에서 지금
+   * "보이는" 영역을 자연 픽셀 단위로 가리킨다. 넷 다 비어있으면(기존에 저장된 이미지
+   * 포함) "자른 적 없음" = 원본 전체가 보인다는 뜻이고, 렌더링도 기존과 완전히 동일
+   * (objectFit:'contain')하게 유지된다(하위 호환). 자르기를 한 번이라도 하면 넷 다
+   * 채워지고, 그때부터는 object.width/height가 곧 "이 크롭 영역이 채워서 보여지는
+   * 크기"가 된다(레터박스 없이 정확히 채움) — canvas/interaction/cropMath.ts가 리사이즈와
+   * 같은 8방향 핸들 드래그를 이 네 값 + x/y/width/height로 함께 변환한다.
+   */
+  cropX?: number;
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
 }
 
 /** objects/image/ImageObjectView.tsx의 SVG 오버레이가 그리는 직선 하나.

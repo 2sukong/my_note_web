@@ -11,6 +11,32 @@ export const RESIZE_HANDLES: ResizeHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 
 
 export const MIN_SIZE = 20; // world 단위
 
+/** 화면 기준 px, zoom과 무관하게 항상 이 크기로 보인다. SelectionOverlay.tsx의 일반
+ * 리사이즈 핸들과 요구사항(이미지 자르기)의 크롭 핸들이 똑같은 크기/톤을 공유한다. */
+export const HANDLE_SCREEN_SIZE = 8;
+
+/** 핸들 하나의 부모 박스(width/height) 기준 상대 위치(left/top)와 커서 모양.
+ * SelectionOverlay.tsx(일반 리사이즈)와 ImageObjectView.tsx(자르기)가 공유한다. */
+export function handlePosition(
+  handle: ResizeHandle,
+  width: number,
+  height: number,
+  size: number,
+): { left: number; top: number; cursor: string } {
+  const half = size / 2;
+  const table: Record<ResizeHandle, { left: number; top: number; cursor: string }> = {
+    nw: { left: -half, top: -half, cursor: 'nwse-resize' },
+    n: { left: width / 2 - half, top: -half, cursor: 'ns-resize' },
+    ne: { left: width - half, top: -half, cursor: 'nesw-resize' },
+    e: { left: width - half, top: height / 2 - half, cursor: 'ew-resize' },
+    se: { left: width - half, top: height - half, cursor: 'nwse-resize' },
+    s: { left: width / 2 - half, top: height - half, cursor: 'ns-resize' },
+    sw: { left: -half, top: height - half, cursor: 'nesw-resize' },
+    w: { left: -half, top: height / 2 - half, cursor: 'ew-resize' },
+  };
+  return table[handle];
+}
+
 /**
  * handle 방향과 world 단위 드래그 이동량(dx, dy)으로부터 새 바운딩 박스를 계산하는 순수 함수.
  * DOM에 의존하지 않으므로 단위 테스트가 가능하다.

@@ -2,28 +2,13 @@ import type { ArrowObject } from '../types/object';
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
 import { useViewportStore } from '../store/viewportStore';
-import { RESIZE_HANDLES } from './interaction/resizeMath';
+import { HANDLE_SCREEN_SIZE, RESIZE_HANDLES, handlePosition } from './interaction/resizeMath';
 import type { Box, ResizeHandle } from './interaction/resizeMath';
 import { useObjectResize } from './interaction/useObjectResize';
+import { useGroupResize } from './interaction/useGroupResize';
 import { useArrowCurveDrag } from './interaction/useArrowCurveDrag';
 import { localEndpoints, curveMidpoint } from '../objects/shapes/shapeGeometry';
-
-const HANDLE_SCREEN_SIZE = 8; // 화면 기준 px, zoom과 무관하게 항상 이 크기로 보인다.
-
-function handlePosition(handle: ResizeHandle, width: number, height: number, size: number) {
-  const half = size / 2;
-  const table: Record<ResizeHandle, { left: number; top: number; cursor: string }> = {
-    nw: { left: -half, top: -half, cursor: 'nwse-resize' },
-    n: { left: width / 2 - half, top: -half, cursor: 'ns-resize' },
-    ne: { left: width - half, top: -half, cursor: 'nesw-resize' },
-    e: { left: width - half, top: height / 2 - half, cursor: 'ew-resize' },
-    se: { left: width - half, top: height - half, cursor: 'nwse-resize' },
-    s: { left: width / 2 - half, top: height - half, cursor: 'ns-resize' },
-    sw: { left: -half, top: height - half, cursor: 'nesw-resize' },
-    w: { left: -half, top: height / 2 - half, cursor: 'ew-resize' },
-  };
-  return table[handle];
-}
+import { useImageCropStore } from '../store/imageCropStore';
 
 /**
  * world 좌표 기준 선택 bounding box 오버레이. text-edit 모드에서는 편집 방해를
@@ -31,16 +16,20 @@ function handlePosition(handle: ResizeHandle, width: number, height: number, siz
  * 바깥 클릭으로 편집을 벗어나면 다시 보인다).
  *
  * Phase 7: 다중 선택 시 선택된 객체 각각에 얇은 테두리를 그린다. 8방향 resize
- * handle은 정확히 하나만 선택됐을 때만 그린다 — 여러 객체를 한 번에 리사이즈하는
- * 기능은 범위 밖이고(요구사항: Undo/Redo·Copy/Paste/Delete·다중 선택), 여러
- * bounding box에 handle을 전부 그리면 시각적으로도 번잡하다. 다중 선택은
- * "이동/삭제/복사"만 지원한다.
+ * handle은 정확히 하나만 선택됐을 때만 개별 박스에 그린다(여러 bounding box에 handle을
+ * 전부 그리면 시각적으로 번잡하므로).
+ *
+ * 요구사항(Ctrl+클릭 다중 선택 함께 리사이즈): 대신 선택이 2개 이상이면 잠기지 않은
+ * 선택 객체들의 union bounding box 하나에 점선 테두리 + 8방향 handle을 추가로 그려서
+ * (useGroupResize.ts) 전체를 한 번에 리사이즈할 수 있게 한다. 잠긴 객체는 이 union
+ * box와 handle 모두에서 제외된다(이동과 동일한 규칙).
  */
 export function SelectionOverlay() {
   const selectedIds = useInteractionStore((s) => s.selectedIds);
   const mode = useInteractionStore((s) => s.mode);
   const objectsRecord = useObjectsStore((s) => s.objects);
   const zoom = useViewportStore((s) => s.zoom);
+  const croppingObjectId = useImageCropStore((s) => s.croppingObjectId);
 
   if (selectedIds.length === 0 || mode === 'text-edit') return null;
 
@@ -52,11 +41,31 @@ export function SelectionOverlay() {
   // hasAutoFitHeightOnceRef 참고). 그래서 다른 객체와 동일하게 8방향 핸들을 모두 쓴다.
   const handleList = RESIZE_HANDLES;
 
+  const resizableGroupIds =
+    selectedIds.length > 1 ? selectedIds.filter((id) => objectsRecord[id] && !objectsRecord[id].locked) : [];
+  let groupBox: Box | null = null;
+  for (const id of resizableGroupIds) {
+    const o = objectsRecord[id];
+    const box: Box = { x: o.x, y: o.y, width: o.width, height: o.height };
+    groupBox = groupBox
+      ? {
+          x: Math.min(groupBox.x, box.x),
+          y: Math.min(groupBox.y, box.y),
+          width: Math.max(groupBox.x + groupBox.width, box.x + box.width) - Math.min(groupBox.x, box.x),
+          height: Math.max(groupBox.y + groupBox.height, box.y + box.height) - Math.min(groupBox.y, box.y),
+        }
+      : box;
+  }
+
   return (
     <>
       {selectedIds.map((id) => {
         const object = objectsRecord[id];
         if (!object) return null;
+        // 요구사항(이미지 자르기): 지금 자르기 모드인 이미지는 ImageObjectView.tsx가
+        // 자기 자신의 박스/핸들(잘려나갈 영역을 흐리게 보여주는 레이어 포함)을 직접
+        // 그린다 — 여기서 일반 리사이즈 테두리/핸들까지 겹쳐 그리면 둘이 충돌한다.
+        if (id === croppingObjectId) return null;
         const box: Box = { x: object.x, y: object.y, width: object.width, height: object.height };
         // Phase 5: Image이고 aspectRatioLocked(기본 true)면 현재 박스의 가로세로 비율을
         // 그대로 리사이즈 동안 유지한다(원본 naturalWidth/Height가 아니라 "지금 보이는"
@@ -106,6 +115,31 @@ export function SelectionOverlay() {
           </div>
         );
       })}
+      {groupBox && (
+        <div
+          style={{
+            position: 'absolute',
+            left: groupBox.x,
+            top: groupBox.y,
+            width: groupBox.width,
+            height: groupBox.height,
+            border: `${borderWidth}px dashed #4f8cff`,
+            pointerEvents: 'none',
+            zIndex: 10000, // 개별 박스(9999)보다 위에 그려 handle이 항상 클릭 가능하게 한다.
+          }}
+        >
+          {handleList.map((handle) => (
+            <GroupResizeHandleDot
+              key={handle}
+              handle={handle}
+              objectIds={resizableGroupIds}
+              box={groupBox as Box}
+              size={HANDLE_SCREEN_SIZE / zoom}
+              borderWidth={borderWidth}
+            />
+          ))}
+        </div>
+      )}
     </>
   );
 }
@@ -126,6 +160,43 @@ function ResizeHandleDot({
   aspectRatio?: number;
 }) {
   const drag = useObjectResize(objectId, box, handle, aspectRatio);
+  const pos = handlePosition(handle, box.width, box.height, size);
+
+  return (
+    <div
+      {...drag}
+      style={{
+        position: 'absolute',
+        left: pos.left,
+        top: pos.top,
+        width: size,
+        height: size,
+        background: '#ffffff',
+        border: `${borderWidth}px solid #4f8cff`,
+        borderRadius: 2,
+        cursor: pos.cursor,
+        pointerEvents: 'auto',
+        touchAction: 'none',
+      }}
+    />
+  );
+}
+
+/** ResizeHandleDot과 같은 모양이지만 단일 객체가 아니라 useGroupResize로 선택 전체를 리사이즈한다. */
+function GroupResizeHandleDot({
+  handle,
+  objectIds,
+  box,
+  size,
+  borderWidth,
+}: {
+  handle: ResizeHandle;
+  objectIds: string[];
+  box: Box;
+  size: number;
+  borderWidth: number;
+}) {
+  const drag = useGroupResize(objectIds, box, handle);
   const pos = handlePosition(handle, box.width, box.height, size);
 
   return (

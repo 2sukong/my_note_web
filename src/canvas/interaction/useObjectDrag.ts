@@ -38,9 +38,9 @@ interface DragRefState {
  * objectsStore에서 직접 최신 좌표를 읽는다(다중 선택 시 여러 객체의 좌표가 필요해서
  * prop으로 넘기는 방식이 더 이상 맞지 않는다).
  *
- * 다중 선택 이동: pointerdown 시점에 (a) Shift가 눌려있으면 toggleSelect로 이
- * 객체만 선택을 켜고/끄고 드래그는 시작하지 않는다(Shift는 "선택 편집" 전용 —
- * Figma 등과 동일한 관례), (b) 이미 다중 선택에 포함된 객체를 그냥 누르면 선택을
+ * 다중 선택 이동: pointerdown 시점에 (a) Shift 또는 Ctrl/Cmd가 눌려있으면
+ * toggleSelect로 이 객체만 선택을 켜고/끄고 드래그는 시작하지 않는다(Shift/Ctrl은
+ * "선택 편집" 전용 — Figma 등과 동일한 관례), (b) 이미 다중 선택에 포함된 객체를 그냥 누르면 선택을
  * 유지한 채 그 다중 선택 전체를 함께 옮긴다, (c) 그 외(선택 안 된 객체를 그냥
  * 누름)에는 단일 선택으로 교체한다. 실제 이동은 드래그 시작 시점 선택 전체의
  * 시작 좌표를 캡처해두고, 매 pointermove마다 그 시작 좌표 + 누적 delta로
@@ -57,9 +57,11 @@ export function useObjectDrag(objectId: string) {
     e.stopPropagation(); // 캔버스 레벨 pan/deselect/마퀴 핸들러로 전파되지 않도록
 
     const interaction = useInteractionStore.getState();
-    if (e.shiftKey) {
+    if (e.shiftKey || e.ctrlKey || e.metaKey) {
+      // Ctrl/Cmd+클릭도 Shift+클릭과 동일하게 다중 선택 토글로 취급한다(요구사항:
+      // Ctrl+객체 클릭으로 다중 선택).
       interaction.toggleSelect(objectId);
-      // Shift+클릭은 선택 편집 자체가 목적이라, 같은 제스처로 곧바로 드래그를
+      // Shift/Ctrl+클릭은 선택 편집 자체가 목적이라, 같은 제스처로 곧바로 드래그를
       // 시작하지 않는다(선택이 막 꺼졌을 수도 있음 — 그 경우 옮길 대상이 없다).
       return;
     }

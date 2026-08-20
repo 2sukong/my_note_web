@@ -24,10 +24,11 @@ import { ObjectView } from '../objects/ObjectView';
 import { SelectionOverlay } from './SelectionOverlay';
 import { MarqueeOverlay } from './MarqueeOverlay';
 import { ObjectContextMenu } from './ObjectContextMenu';
-import { ImageLightbox } from './ImageLightbox';
 import { Toolbar } from './Toolbar';
 import { DrawPreview } from './DrawPreview';
 import { HighlightDragPreview } from './HighlightDragPreview';
+import { TextRangeSelectionOverlay } from './TextRangeSelectionOverlay';
+import { ImageCropOverlay } from './ImageCropOverlay';
 import { AlignmentGuideOverlay } from './AlignmentGuideOverlay';
 import { PropertiesPanel } from './PropertiesPanel';
 import { CanvasSearch } from './CanvasSearch';
@@ -194,7 +195,6 @@ export function Canvas() {
       <Toolbar />
       <PropertiesPanel />
       <ObjectContextMenu />
-      <ImageLightbox />
 
       <input
         ref={fileInputRef}
@@ -221,9 +221,11 @@ export function Canvas() {
         <div data-export-exclude="true">
           <DrawPreview />
           <HighlightDragPreview />
+          <TextRangeSelectionOverlay />
           <AlignmentGuideOverlay />
           <MarqueeOverlay />
           <SelectionOverlay />
+          <ImageCropOverlay />
         </div>
       </div>
     </div>

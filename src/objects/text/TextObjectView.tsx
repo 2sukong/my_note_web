@@ -207,14 +207,19 @@ export function TextObjectView({ object }: { object: TextObject }) {
   // 요구사항(자동 높이는 커지는 방향으로만): 내용이 줄어들었다고 상자를 계속
   // 줄이면(과거 동작) 편집 중 Backspace 몇 번에 상자가 계속 움찔거리며 작아지는
   // 게 어색하다는 피드백 — 그래서 "내용이 상자보다 커질 때만" 키우고, 짧아져도
-  // 절대 줄이지 않는다. 다만 방금 생성된(또는 방금 마운트된) 상자의 아주 첫
-  // 측정만은 예외로 허용한다 — 그래야 생성 시 임의로 잡아둔 기본 높이
-  // (actions.ts의 DEFAULT_TEXT_HEIGHT, 실제 폰트 크기와 무관한 값)가 그 폰트의
-  // 실제 한 줄 높이로 정확히 맞춰진 뒤부터 "커지기만" 규칙이 적용된다 — 이 ref가
-  // 그 첫 측정 여부를 기억한다(객체마다 새로 mount되므로 새 텍스트는 항상
-  // false로 시작하고, 기존에 저장된 객체를 새로고침으로 다시 불러온 경우에는
-  // 첫 측정값이 이미 저장된 height와 사실상 같아서 예외를 허용해도 아무 차이가
-  // 없다).
+  // 절대 줄이지 않는다. 다만 방금 생성된 상자의 아주 첫 측정만은 예외로 허용한다 —
+  // 그래야 생성 시 임의로 잡아둔 기본 높이(actions.ts의 DEFAULT_TEXT_HEIGHT, 실제
+  // 폰트 크기와 무관한 값)가 그 폰트의 실제 한 줄 높이로 정확히 맞춰진 뒤부터
+  // "커지기만" 규칙이 적용된다 — 이 ref가 그 첫 측정 여부를 기억한다.
+  //
+  // 버그 수정(리사이즈로 줄인 상자가 새로고침하면 다시 커짐): 이 ref는 "컴포넌트
+  // 인스턴스"별로만 기억하므로 새로고침하면 항상 false로 다시 시작한다 — 즉 이미
+  // 저장돼 있던(사용자가 직접 리사이즈했을 수도 있는) 기존 객체도 새로고침 직후엔
+  // "방금 생성된 상자"와 구별되지 않아서 첫 측정 예외가 도로 적용돼, 사용자가 일부러
+  // 줄여둔 높이를 자동으로 다시 키워버렸다. 그래서 이 ref 하나만으로는 부족하고,
+  // 아래 effect에서 object.createdAt === object.updatedAt(생성된 뒤 단 한 번도
+  // 수정된 적 없는, 진짜 방금 만든 객체)까지 함께 확인한다 — 새로고침으로 불러온
+  // 기존 객체는 이 조건이 항상 거짓이라 첫 측정 예외를 절대 타지 않는다.
   const hasAutoFitHeightOnceRef = useRef(false);
   // 요구사항(빈 텍스트 상자 자동 삭제): 이 상자에 실제 글자가 한 번이라도 있었는지
   // 기억한다. 마운트 시 이미 내용이 있으면(기존에 저장된 노트를 다시 연 경우) true로
@@ -272,7 +277,9 @@ export function TextObjectView({ object }: { object: TextObject }) {
   const isEditing = mode === 'text-edit' && isSingleSelected;
   // Phase 8(부분 서식): 편집 중 드래그로 만든 네이티브 선택 구간을 textRangeStore에
   // 반영한다 — PropertiesPanel이 이를 구독해서 "구간에만 스타일 적용" 모드로 전환한다.
-  useTextRangeSelection(object.id, isEditing);
+  // onLinePointerDown은 요구사항(Ctrl+드래그로 비연속 다중 구간 선택)을 위해 아래
+  // 줄 div의 onPointerDown(isEditing 분기)에서 직접 호출한다.
+  const { onLinePointerDown } = useTextRangeSelection(object.id, isEditing);
   // Phase 4: 형광펜/주석 도구가 활성화된 동안엔 이 텍스트가 편집 중이 아니어도
   // 드래그로 선택할 수 있어야 한다(ObjectView가 이때 drag 핸들러를 떼어준다).
   // 이 컴포넌트에서는 그 선택이 실제로 동작하도록 각 줄에 user-select: text를
@@ -598,9 +605,22 @@ export function TextObjectView({ object }: { object: TextObject }) {
       // 반영해서 실제 폰트 기준 자연스러운 높이로 맞추고, 그 이후로는 nextHeight가
       // 현재 object.height보다 "확실히 더 클 때"만 반영한다(줄어드는 방향은 절대
       // 반영하지 않음 — 위 hasAutoFitHeightOnceRef 주석 참고).
-      const shouldApply = hasAutoFitHeightOnceRef.current
-        ? nextHeight - object.height > 0.5
-        : Math.abs(nextHeight - object.height) > 0.5;
+      //
+      // 버그 수정(리사이즈로 줄인 상자가 새로고침하면 다시 커짐): hasAutoFitHeightOnceRef는
+      // "컴포넌트 인스턴스"별로만 기억하는데, 새로고침하면 기존에 저장돼 있던(이미 사용자가
+      // 직접 리사이즈했을 수도 있는) 객체도 항상 이 ref가 false로 새로 시작한다. 원래
+      // 주석은 "새로고침으로 다시 불러온 기존 객체는 첫 측정값이 이미 저장된 height와
+      // 사실상 같아서 예외를 허용해도 차이가 없다"고 가정했지만, 사용자가 실제 내용
+      // 높이보다 더 작게 리사이즈해둔 경우엔 그 가정이 깨진다 — 첫 측정값(nextHeight)이
+      // 저장된 height보다 커서 "첫 측정 예외"가 그 값을 도로 키워버린다. createdAt과
+      // updatedAt이 아직 같다는(=생성된 뒤 단 한 번도 수정되지 않은, 진짜 방금 만든
+      // 객체라는) 조건을 추가로 걸어서, 기존에 저장돼 있던(즉 한 번이라도 수정된 적
+      // 있는) 객체는 새로고침 직후에도 항상 "커지는 방향으로만" 규칙만 적용받게 한다.
+      const isGenuinelyFreshObject = object.createdAt === object.updatedAt;
+      const shouldApply =
+        hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
+          ? nextHeight - object.height > 0.5
+          : Math.abs(nextHeight - object.height) > 0.5;
       hasAutoFitHeightOnceRef.current = true;
       if (shouldApply) {
         // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
@@ -619,15 +639,23 @@ export function TextObjectView({ object }: { object: TextObject }) {
     // PropertiesPanel에서 글자 크기/글꼴만 바꿔도(lines/width는 그대로) 다시 측정해야
     // 한다. object.lineHeight도 마찬가지 이유로 포함한다 — 사이드바에서 줄 간격만
     // 바꿔도(텍스트 자체는 그대로) 상자 높이와 spacer 위치를 다시 재야 한다.
-    // object.height는 의도적으로 deps에서 뺐다 — 이 effect 자신이 그 값을
-    // 쓰는 쪽이라, 넣으면 매번 자기 자신을 다시 트리거할 잠재적 루프가 생긴다
-    // (실제로는 위에서 임계값 비교로 막고 있지만, 애초에 deps에 없으면 그 방어
-    // 로직에 의존할 필요조차 없다). customFonts는 위 주석(버그 수정) 참고 —
+    // 버그 수정(리사이즈 핸들로 상자를 줄이면 글자가 밖으로 삐져나온 채 복구되지 않음):
+    // object.height는 예전엔 "이 effect 자신이 쓰는 값이라 deps에 넣으면 자기 자신을
+    // 다시 트리거할 루프가 생긴다"는 이유로 의도적으로 빠져 있었다 — 그런데 그 결과
+    // object.height "만" 바뀌는 경우(리사이즈 핸들로 폭은 그대로 두고 높이만 드래그하는
+    // 경우 등 — object.lines/width/fontSize 등 다른 deps는 전혀 안 바뀜)엔 이 effect가
+    // 아예 재실행되지 않아서, 리사이즈로 내용보다 작아진 높이를 자동으로 다시 키워주는
+    // "커지는 방향으로만" 안전장치 자체가 발동할 기회가 없었다 — 즉 글자가 상자
+    // 밖으로 넘쳐도 아무도 고쳐주지 않았다. 위 shouldApply의 임계값 비교(0.5px)가
+    // 이 effect 자신의 updateObject 호출로 인한 재실행을 "다음 재실행에서 변화 없음"으로
+    // 정확히 잡아내 멈추므로(다음 nextHeight가 방금 적용한 값과 같아짐), 실제로는
+    // 루프 걱정 없이 안전하게 deps에 넣을 수 있다. customFonts는 위 주석(버그 수정) 참고 —
     // 커스텀 폰트가 비동기로 뒤늦게 등록됐을 때 실제 글자 위치로 재측정하기 위함이다.
   }, [
     object.id,
     object.lines,
     object.width,
+    object.height,
     object.baseFontSize,
     object.fontFamily,
     object.lineHeight,
@@ -991,6 +1019,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
           onPointerDown={(e) => {
             if (isEditing) {
               e.stopPropagation();
+              onLinePointerDown(e.ctrlKey || e.metaKey);
               return;
             }
             // Phase 4(2차): select 도구에서만 "이 줄을 클릭했는지"를 추적한다 —
@@ -1028,10 +1057,16 @@ export function TextObjectView({ object }: { object: TextObject }) {
             // 늘어나도 잘리지 않도록(요구사항) 고정값이 아니라 실측 높이 기반으로 계산한다.
             paddingTop: reservedSpaceForLine(line),
             minHeight: `${lineHeightRatio}em`,
-            // 사이드바에서 명시적으로 값을 조절한 적이 있을 때만 CSS line-height를 지정한다.
-            // 지정하지 않은(기존 저장된) 텍스트는 그대로 브라우저 기본값을 쓰게 두어
-            // 이 기능 도입 전과 렌더링이 완전히 동일하게 유지된다(하위 호환).
-            lineHeight: object.lineHeight != null ? lineHeightRatio : undefined,
+            // 버그 수정(커스텀 글꼴에서 상자를 최소로 줄여도 빈 공간이 많이 남음):
+            // 예전엔 사이드바에서 줄 간격을 명시적으로 조절한 적이 있을 때만 CSS
+            // line-height를 지정하고, 그렇지 않으면 브라우저 기본값(line-height: normal)에
+            // 맡겼다 — 그런데 normal은 그 글꼴 파일 안에 박혀 있는 ascent/descent/line-gap
+            // 메타데이터를 기준으로 하기 때문에, 실제 글자(잉크) 높이와 무관하게 특정
+            // 커스텀 글꼴에서는 1.4em(기본값)보다 훨씬 크게 잡힐 수 있다. 그 줄 box 높이가
+            // 그대로 scrollHeight(아래 자동 높이 effect)에 반영돼 "최소로 줄여도" 실제로는
+            // 줄지 않는 것처럼 보였다. 이제 항상 lineHeightRatio를 명시해서 글꼴의 내부
+            // 메타데이터와 무관하게 일관되게(그리고 최소한으로) 렌더링한다.
+            lineHeight: lineHeightRatio,
             outline: 'none',
             // Phase 4: 형광펜/주석 도구가 켜져 있을 때만 네이티브 텍스트 선택을 허용한다.
             // 기본값(select 도구)에서는 .canvas-root의 user-select:none을 그대로 물려받아

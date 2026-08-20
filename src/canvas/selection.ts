@@ -34,6 +34,31 @@ export function objectsFullyInsideRect(rect: Rect): string[] {
   return ids;
 }
 
+/**
+ * 마퀴 사각형과 "교차(intersect)"하는 Text 객체들의 id를 반환한다(zIndex 순서 무관).
+ *
+ * Ctrl+드래그 전용 선택 방식이다 — objectsFullyInsideRect의 "완전 포함" 기준과 달리,
+ * 살짝만 겹쳐도 선택되는 교차 기준을 쓴다. Text만 대상으로 하므로 objectsFullyInsideRect의
+ * 완전 포함 기준을 채택한 이유였던 "Frame이 항상 함께 걸리는 문제"가 애초에 발생하지 않는다.
+ */
+export function textObjectsIntersectingRect(rect: Rect): string[] {
+  const left = rect.x;
+  const top = rect.y;
+  const right = rect.x + rect.width;
+  const bottom = rect.y + rect.height;
+
+  const ids: string[] = [];
+  for (const obj of Object.values(useObjectsStore.getState().objects)) {
+    if (obj.type !== 'text') continue;
+    const objRight = obj.x + obj.width;
+    const objBottom = obj.y + obj.height;
+    if (obj.x < right && objRight > left && obj.y < bottom && objBottom > top) {
+      ids.push(obj.id);
+    }
+  }
+  return ids;
+}
+
 /** world 좌표 두 점(드래그 시작/끝)으로부터 정규화된(x<=x+width, y<=y+height) 사각형을 만든다. */
 export function normalizeRect(start: { x: number; y: number }, end: { x: number; y: number }): Rect {
   const x = Math.min(start.x, end.x);

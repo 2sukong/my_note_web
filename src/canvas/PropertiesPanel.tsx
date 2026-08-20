@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TextObject } from '../types/object';
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
+import { useHistoryStore } from '../store/historyStore';
 import { useFontStore } from '../store/fontStore';
 import { useToolStore } from '../store/toolStore';
 import { useTextDefaultPresetsStore } from '../store/textDefaultPresetsStore';
@@ -168,6 +169,58 @@ export function PropertiesPanel() {
       return (
         <PanelShell title="프레임" onClose={deselect}>
           <FrameSection object={object} update={update} />
+        </PanelShell>
+      );
+    }
+    return null;
+  }
+
+  // 요구사항(Ctrl+클릭/Ctrl+드래그 다중 선택 사이드바): 2개 이상 선택됐을 때, 선택된
+  // 객체의 종류가 전부 같으면 그 종류의 사이드바를 보여준다(다르면 아무것도 보여주지
+  // 않는다). 표시되는 현재 값은 첫 번째로 선택된 객체를 대표로 삼지만, 컨트롤을
+  // 조작하면 updateAll이 선택된 모든 객체에 같은 patch를 적용한다 — 한 번의 undo로
+  // 묶이도록 트랜잭션으로 감싼다(그렇지 않으면 objectsStore.mutate가 객체마다
+  // 별도의 history 항목을 만든다).
+  if (selectedIds.length > 1) {
+    const objects = selectedIds.map((id) => objectsRecord[id]).filter((o): o is CanvasObject => !!o);
+    if (objects.length === 0) return null;
+    const firstType = objects[0].type;
+    if (!objects.every((o) => o.type === firstType)) return null;
+
+    const representative = objects[0];
+    const updateAll = (patch: Record<string, unknown>, coalesceKey?: string) => {
+      useHistoryStore.getState().beginTransaction(coalesceKey ?? 'multi-style');
+      for (const o of objects) {
+        useObjectsStore.getState().updateObject(o.id, patch);
+      }
+      useHistoryStore.getState().endTransaction();
+    };
+
+    if (representative.type === 'text') {
+      return (
+        <PanelShell title="텍스트" onClose={deselect}>
+          <TextSection object={representative} update={updateAll} />
+        </PanelShell>
+      );
+    }
+    if (representative.type === 'arrow') {
+      return (
+        <PanelShell title="화살표" onClose={deselect}>
+          <ArrowSection object={representative} update={updateAll} />
+        </PanelShell>
+      );
+    }
+    if (representative.type === 'rectangle') {
+      return (
+        <PanelShell title="사각형" onClose={deselect}>
+          <RectangleSection object={representative} update={updateAll} />
+        </PanelShell>
+      );
+    }
+    if (representative.type === 'frame') {
+      return (
+        <PanelShell title="프레임" onClose={deselect}>
+          <FrameSection object={representative} update={updateAll} />
         </PanelShell>
       );
     }
@@ -755,8 +808,13 @@ function TextSection({
   // 참조가 안정적인 원본 배열만 구독하고(getOrderedObjects와 같은 이유로, 셀렉터
   // 안에서 매번 새 배열을 만들면 안 된다), 이 objectId에 해당하는 것만 컴포넌트
   // 본문에서 걸러낸다.
-  const allSegments = useTextRangeStore((s) => s.segments);
-  const rangeSegments = allSegments.filter((seg) => seg.objectId === object.id);
+  //
+  // 요구사항(Ctrl+드래그로 비연속 다중 구간 선택): liveSegments(지금 드래그 중/방금
+  // 끝난 네이티브 선택)와 committedSegments(Ctrl+드래그로 이전에 커밋해둔 구간들)를
+  // 합쳐서 "지금 스타일을 적용할 전체 구간"으로 쓴다.
+  const liveSegments = useTextRangeStore((s) => s.liveSegments);
+  const committedSegments = useTextRangeStore((s) => s.committedSegments);
+  const rangeSegments = [...committedSegments, ...liveSegments].filter((seg) => seg.objectId === object.id);
   const hasRange = rangeSegments.length > 0;
   // 여러 줄에 걸친 구간이어도 "현재 값" 표시는 첫 세그먼트의 대표 스타일 하나로
   // 단순화한다(대부분의 리치 텍스트 에디터도 같은 방식을 쓴다 — runStyle.ts 참고).
@@ -773,10 +831,17 @@ function TextSection({
     value: K extends 'fontSize' ? number : K extends 'bold' ? boolean : string,
   ) => {
     if (hasRange) {
+      // 요구사항(Ctrl+드래그로 비연속 다중 구간 선택): 한 줄 안에 구간이 여러 개일
+      // 수 있으므로(예: 같은 줄의 "apple"과 "cherry"를 각각 Ctrl+드래그로 커밋)
+      // find로 하나만 집지 않고 그 줄에 속한 구간을 전부 순서대로 적용한다.
       const nextLines = object.lines.map((line) => {
-        const seg = rangeSegments.find((s) => s.lineId === line.id);
-        if (!seg) return line;
-        return { ...line, runs: applyRunStyle(line.runs, seg.start, seg.end, { [field]: value }) };
+        const segsForLine = rangeSegments.filter((s) => s.lineId === line.id);
+        if (segsForLine.length === 0) return line;
+        let runs = line.runs;
+        for (const seg of segsForLine) {
+          runs = applyRunStyle(runs, seg.start, seg.end, { [field]: value });
+        }
+        return { ...line, runs };
       });
       useObjectsStore.getState().setTextLines(object.id, nextLines);
       return;
