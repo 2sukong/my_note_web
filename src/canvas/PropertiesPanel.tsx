@@ -299,6 +299,12 @@ function PanelShell({ title, onClose, children }: { title: string; onClose: () =
       // 직후 도구가 꺼지는 문제가 있었다(형광펜 굵기 드롭다운뿐 아니라 텍스트/주석
       // "크기" 드롭다운도 동일하게 영향받음). 포털 목록도 패널의 일부로 취급한다.
       if ((e.target as HTMLElement).closest('.properties-dropdown-list')) return;
+      // 버그 수정(색상 피커에서 색을 고르면 사이드바가 닫힘): ColorPickerPopover도
+      // 드롭다운 목록과 같은 이유로 document.body에 portal로 띄워져
+      // (properties-color-popover) DOM상 panelRef의 자식이 아니다 — 팝오버 안에서
+      // 색을 클릭하면 pointerdown이 panelRef.current.contains 검사를 통과하지 못해
+      // onClose가 먼저 실행되고, 색 변경이 반영되기 전에 사이드바가 꺼졌다.
+      if ((e.target as HTMLElement).closest('.properties-color-popover')) return;
       onClose();
     }
     window.addEventListener('pointerdown', handlePointerDown);

@@ -340,6 +340,37 @@ export function TextObjectView({ object }: { object: TextObject }) {
     });
   };
 
+  /**
+   * 버그 수정(커스텀 폰트를 쓰는 일부 텍스트 상자가 새로고침하면 세로 길이가
+   * 크게(때로는 거의 2배) 늘어남): 업로드한 커스텀 폰트는 store/fontStore.ts의
+   * familyNameFor가 만드는 고유 이름(`user-font-<id>`)만 저장되고, 별도 fallback
+   * 글꼴 목록 없이 그대로 CSS font-family에 쓰인다. 새로고침 직후에는 이 폰트가
+   * IndexedDB에서 비동기로 다시 로드되는 동안(store/fontStore.ts의 loadPersistedFonts)
+   * 아직 document.fonts에 등록되지 않은 상태라, 브라우저가 그 이름을 못 찾고 브라우저
+   * 기본 글꼴(대개 세리프)로 대신 그린다 — 이때 글자 너비가 실제 커스텀 폰트와
+   * 크게 달라 줄바꿈 개수 자체가 달라질 수 있다. 바로 이 순간 아래 자동 높이 로직이
+   * scrollHeight를 재서 store에 반영해버리면, 폰트가 실제로 로드된 뒤 다시 잰 값이
+   * 더 작아도 "커지는 방향으로만" 규칙 때문에 절대 줄어들지 않아 잘못된 높이가
+   * 영구히 남는다. 그래서 이 객체(또는 부분 서식/주석)가 참조하는 커스텀 폰트 중
+   * 하나라도 아직 로드되지 않았으면, 그 폰트가 실제로 등록될 때까지(그러면 아래
+   * customFonts deps로 effect가 다시 돈다) 높이 측정·반영 자체를 건너뛴다.
+   */
+  function isFontFamilyPending(family: string | undefined): boolean {
+    return !!family && family.startsWith('user-font-') && !customFonts.some((f) => f.family === family);
+  }
+  function hasPendingCustomFont(): boolean {
+    if (isFontFamilyPending(object.fontFamily)) return true;
+    for (const line of object.lines) {
+      for (const run of line.runs) {
+        if (isFontFamilyPending(run.fontFamily)) return true;
+      }
+      for (const a of line.annotations ?? []) {
+        if (isFontFamilyPending(a.fontFamily)) return true;
+      }
+    }
+    return false;
+  }
+
   /** 이 줄의 문단 맨 앞(annotation.start === 0)에 달린 주석들 중 가장 큰 말풍선 실측
    * 높이와, 그 줄의 fontScale — paddingTop(reservedSpaceForLine) 계산에 쓰인다.
    * start > 0(문단 중간의 자동 줄바꿈된 행)인 주석은 여기서 제외한다 — padding-top은
@@ -619,6 +650,12 @@ export function TextObjectView({ object }: { object: TextObject }) {
       // 안에 있어도 scrollHeight 자체는 transform 이전 레이아웃 단계의 값이라
       // zoom으로 나눌 필요가 없다(다른 rect 기반 측정과 달리 getBoundingClientRect를
       // 쓰지 않기 때문).
+      //
+      // 위 hasPendingCustomFont() 주석 참고: 이 객체가 참조하는 커스텀 폰트 중 하나라도
+      // 아직 로드되지 않았으면 이번 렌더의 scrollHeight는 잘못된(브라우저 기본 글꼴
+      // 기준) 값이므로 아예 재지도, store에 반영하지도 않는다 — customFonts가 갱신되면
+      // deps로 effect가 다시 돌아 그때 정확한 값으로 측정한다.
+      if (hasPendingCustomFont()) return;
       const measuredHeight = containerEl.scrollHeight;
       const nextHeight = Math.max(MIN_TEXT_HEIGHT, measuredHeight);
       // 요구사항(자동 높이는 커지는 방향으로만): 이 effect가 아직 한 번도 높이를
@@ -637,29 +674,35 @@ export function TextObjectView({ object }: { object: TextObject }) {
       // updatedAt이 아직 같다는(=생성된 뒤 단 한 번도 수정되지 않은, 진짜 방금 만든
       // 객체라는) 조건을 추가로 걸어서, 기존에 저장돼 있던(즉 한 번이라도 수정된 적
       // 있는) 객체는 새로고침 직후에도 항상 "커지는 방향으로만" 규칙만 적용받게 한다.
-      // 버그 수정(리사이즈로 상자를 내용보다 작게 줄여도 새로고침하면 다시 커짐):
-      // object.manualHeight(types/object.ts 주석 참고)가 true면 사용자가 리사이즈
-      // 핸들로 세로 크기를 직접 정한 것이므로, 아래 "내용에 맞춰 자동으로 커지는"
-      // 로직 자체를 건너뛴다 — 이 값은 객체에 저장돼 새로고침에도 살아남으므로,
-      // 컴포넌트가 리마운트되는 새로고침 직후에도 사용자가 정한 크기가 그대로
-      // 유지된다. 아직 한 번도 리사이즈된 적 없는(타이핑만으로 만들어진) 객체는
-      // 아래 기존 로직 그대로 "내용에 맞춰 커지는(첫 측정에 한해 줄기도 하는)"
-      // 동작을 유지한다.
-      if (!object.manualHeight) {
-        const isGenuinelyFreshObject = object.createdAt === object.updatedAt;
-        const shouldApply =
-          hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
-            ? nextHeight - object.height > 0.5
-            : Math.abs(nextHeight - object.height) > 0.5;
-        hasAutoFitHeightOnceRef.current = true;
-        if (shouldApply) {
-          // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
-          // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
-          // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
-          // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
-          // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
-          useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
-        }
+      // 버그 수정(리사이즈로 세로를 줄인 뒤 가로를 더 줄이면 글자가 넘쳐도 상자가
+      // 자라지 않음): object.manualHeight(types/object.ts 주석 참고)가 true면 사용자가
+      // 리사이즈 핸들로 세로 크기를 직접 정했다는 뜻이지만, 그렇다고 이후 내용이
+      // 정말로 넘칠 때(예: 가로 폭을 더 줄여 줄바꿈이 늘어나는 경우)까지 절대 자동으로
+      // 커지지 않아야 하는 것은 아니다 — SelectionOverlay.tsx의 핸들 주석에도 "내용이
+      // 현재 높이보다 더 필요할 때만 자동으로 커진다"고 명시돼 있다. 예전엔 manualHeight가
+      // true인 순간부터 이 블록 전체를 건너뛰어서, 리사이즈를 한 번이라도 한 상자는
+      // 그 뒤로 글자가 상자 밖으로 삐져나와도 영원히 자동으로 자라지 못했다(버그 신고:
+      // 가로 폭을 줄여 텍스트가 여러 줄로 넘어가도 세로 길이가 그대로 유지됨).
+      // 그래서 manualHeight 여부와 무관하게 "커지는 방향으로만" 규칙(shouldApply의
+      // grow-only 분기)은 항상 적용하고, manualHeight가 true인 객체만 "첫 측정에 한해
+      // 줄어들 수도 있는" 예외(shrink-on-first-measurement)에서 제외한다 — 이 예외는
+      // 어차피 "생성된 뒤 단 한 번도 수정된 적 없는" 객체에만 해당하는데, 리사이즈
+      // 자체가 이미 수정 행위이므로 manualHeight가 true인 객체는 이 조건에 걸리지
+      // 않는다(아래 isGenuinelyFreshObject 계산 참고). 즉 실질적인 동작 변화는
+      // "manualHeight 객체도 grow-only 규칙을 적용받는다"는 것 하나뿐이다.
+      const isGenuinelyFreshObject = !object.manualHeight && object.createdAt === object.updatedAt;
+      const shouldApply =
+        hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
+          ? nextHeight - object.height > 0.5
+          : Math.abs(nextHeight - object.height) > 0.5;
+      hasAutoFitHeightOnceRef.current = true;
+      if (shouldApply) {
+        // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
+        // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
+        // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
+        // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
+        // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
+        useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
       }
     }
     // annotationHeights를 deps에 포함해야 한다: 주석 높이가 바뀌면(줄 수 증가) 그 줄의
@@ -1044,6 +1087,29 @@ export function TextObjectView({ object }: { object: TextObject }) {
     updateLines(nextLines);
   };
 
+  // 버그 수정(IME 조합 중 줄바꿈된 직후에도 상자가 바로 자라지 않고 다음 글자를
+  // 써야 자람): 조합(composition) 중에는 store(object.lines)를 건드리지 않으므로
+  // (조합 버퍼를 깨뜨리지 않기 위해 — 위 onInput 참고) 아래 자동 높이 useLayoutEffect의
+  // deps(object.lines 등)가 전혀 바뀌지 않아 effect가 다시 돌지 않는다. 하지만 IME가
+  // 보여주는 조합 중 글자는 이미 실제 DOM에 반영돼 있어서(브라우저가 직접 그린다)
+  // 그 시점에 이미 줄바꿈이 일어날 수 있다 — 그래서 조합이 끝나 store가 갱신될 때까지
+  // (다음 글자를 쓰기 시작해 compositionend가 발생할 때까지) 상자 높이만 한 박자 늦게
+  // 따라왔다. store를 건드리지 않고 DOM만 다시 재서(scrollHeight) "커지는 방향으로만"
+  // 규칙만 그대로 적용하면 조합 중에도 안전하게 높이를 맞출 수 있다 — 아래 useLayoutEffect의
+  // 자동 높이 로직과 완전히 같은 grow-only 판단을 재사용한다(단, 여기서는 store를
+  // 전혀 건드리지 않으므로 hasAutoFitHeightOnceRef/isGenuinelyFreshObject 같은 "첫 측정"
+  // 예외는 관여하지 않는다 — 그 예외는 이 effect가 이미 한 번 이상 정상 실행된 뒤에만
+  // 의미가 있고, 조합 중간의 임시 측정은 그 자체로 별개의 실행이 아니라 다음 effect
+  // 실행 전까지의 임시 보정일 뿐이다).
+  const growHeightIfNeeded = () => {
+    const containerEl = containerRef.current;
+    if (!containerEl) return;
+    const nextHeight = Math.max(MIN_TEXT_HEIGHT, containerEl.scrollHeight);
+    if (nextHeight - object.height > 0.5) {
+      useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+    }
+  };
+
   // input(일반 타이핑) 또는 compositionend(IME 조합 확정) 이후 호출된다.
   // 같은 줄에 대해 동일한 최종 텍스트가 두 번(예: compositionend 직후 곧바로 이어지는
   // input 이벤트) 들어와도 store를 중복으로 건드리지 않도록 dedupe한다.
@@ -1252,7 +1318,13 @@ export function TextObjectView({ object }: { object: TextObject }) {
                   // 돌리지 않는다 — 조합 중에 store를 갱신하면 재렌더링이 DOM의 조합 버퍼를
                   // 덮어써서 입력이 깨질 수 있다. 조합이 끝나면 onCompositionEnd에서 한 번 더 처리한다.
                   const composing = isComposingRef.current || (e.nativeEvent as InputEvent).isComposing;
-                  if (composing) return;
+                  if (composing) {
+                    // 버그 수정: 조합 중에도 DOM은 이미 갱신돼 있으므로(위 growHeightIfNeeded
+                    // 주석 참고) store 동기화만 건너뛰고 높이는 그대로 다시 잰다 — 그래야
+                    // 조합 중 줄바꿈이 일어난 바로 그 순간 상자도 함께 자란다.
+                    growHeightIfNeeded();
+                    return;
+                  }
                   syncLineFromDom(index, e.currentTarget);
                 }
               : undefined
