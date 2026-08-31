@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { useViewportStore } from '../../store/viewportStore';
+import { useInteractionStore } from '../../store/interactionStore';
 
 /**
  * 캔버스 pan(이동) 인터랙션.
@@ -47,6 +48,22 @@ export function usePan(containerRef: RefObject<HTMLDivElement | null>) {
     const handlePointerDown = (e: PointerEvent) => {
       if (!shouldStartPan(e)) return;
       e.preventDefault();
+      // 버그 수정(스페이스+드래그로 화면 이동 중 텍스트에 스페이스가 계속 입력됨):
+      // 텍스트 편집 중(mode==='text-edit') 커서가 편집 중인 텍스트 위에 있을 때 스페이스를
+      // 누르고 그대로 마우스를 움직이면, pointerdown이 텍스트의 contentEditable div
+      // 위에서 일어나 이 pan 제스처가 시작되면서도 그 div는 계속 포커스를 들고 있었다 —
+      // Canvas.tsx의 배경 클릭 처리는 e.target이 캔버스 루트 자신일 때만 동작해서 이
+      // 경우엔 걸리지 않는다. 그 결과 포커스가 텍스트에 남은 채 스페이스바가
+      // auto-repeat되면서 각 keydown이 그대로 텍스트에 스페이스 문자로 입력됐다.
+      // Escape로 편집을 빠져나갈 때(TextObjectView.tsx의 setMode('select') + blur)와
+      // 같은 방식으로, pan이 실제로 시작되는 순간 편집 중이면 즉시 캐럿을 꺼서 이후
+      // 키 입력이 텍스트로 가지 않게 한다.
+      if (useInteractionStore.getState().mode === 'text-edit') {
+        useInteractionStore.getState().setMode('select');
+        if (document.activeElement instanceof HTMLElement && document.activeElement.isContentEditable) {
+          document.activeElement.blur();
+        }
+      }
       setPanning(true);
       lastPoint.current = { x: e.clientX, y: e.clientY };
       el.setPointerCapture(e.pointerId);
