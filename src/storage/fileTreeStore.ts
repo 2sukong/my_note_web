@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { getDB } from './db';
 import type { FileRecord, PageRecord } from './db';
 import { savePageObjects, loadPageObjects, deletePageObjects } from './pagePersistence';
+import {
+  writePendingSnapshot,
+  clearPendingSnapshotIfMatches,
+  clearPendingSnapshot,
+  readPendingSnapshot,
+} from './pendingSaveBuffer';
 import { isDescendantOrSelf, collectFileSubtreeIds, findFirstPageId, cloneObjectsWithNewIds } from './fileTreeLogic';
 import { useObjectsStore, createDemoObjects } from '../store/objectsStore';
 import { useViewportStore } from '../store/viewportStore';
@@ -22,6 +28,9 @@ import type { CanvasObject } from '../types/object';
 const AUTOSAVE_DEBOUNCE_MS = 500;
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+/** flushActivePage 호출마다 하나씩 증가한다 — pendingSaveBuffer.ts의 낙관적 잠금(겹치는
+ * 저장 요청 중 오래된 것이 최신 버퍼를 실수로 지우지 않게 하는 용도)에 쓰인다. */
+let saveSeq = 0;
 let suppressAutosave = false;
 let autosaveWatchStarted = false;
 /** React 18 StrictMode는 개발 모드에서 effect를 두 번 실행한다 — App.tsx의 init() 호출이
@@ -97,6 +106,17 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
     const objects = Object.values(useObjectsStore.getState().objects);
     const vp = useViewportStore.getState();
     const viewport = { zoom: vp.zoom, panX: vp.panX, panY: vp.panY };
+
+    // 버그 수정(리사이즈 직후 F5 하면 크기가 되돌아옴, 근본 원인/설계는
+    // storage/pendingSaveBuffer.ts 상단 주석 참고): 아래 savePageObjects(IndexedDB)가
+    // 커밋을 마치기 전에 F5가 눌리면 그 커밋 완료를 영영 못 볼 수 있다 — 그 비동기
+    // 구간이 시작되기 "전에" 동기적으로(await 없이) 지금 스냅샷을 localStorage에
+    // 남겨서, 그런 경우에도 다음 로드 때 이 값으로 복구할 수 있게 한다. seq는 이번
+    // flushActivePage 호출 하나를 식별하는 값 — 겹쳐 호출된 다른(더 최신) 저장이
+    // 이미 버퍼를 덮어썼는데 이 호출의 완료 콜백이 그걸 지워버리는 일을 막는 데 쓴다.
+    const seq = ++saveSeq;
+    writePendingSnapshot(pageId, objects, seq);
+
     try {
       useSaveStatusStore.getState().setStatus('saving');
       await savePageObjects(pageId, objects);
@@ -107,11 +127,35 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
         const db = await getDB();
         await db.put('pages', updated);
       }
+      // 이 호출이 남긴 스냅샷이 여전히 버퍼에 그대로 있을 때만(=그 사이 더 최신 저장이
+      // 덮어쓰지 않았을 때만) 지운다.
+      clearPendingSnapshotIfMatches(pageId, seq);
       useSaveStatusStore.getState().setStatus('saved');
     } catch (e) {
       console.error('[my-note-web] 자동저장 실패', e);
       useSaveStatusStore.getState().setStatus('error');
+      // 실패했으면 버퍼는 그대로 남겨둔다 — 다음 로드 때 복구할 수 있어야 한다.
     }
+  }
+
+  /** loadPageObjects()로 IndexedDB에서 읽은 뒤, 커밋 확인이 안 된 채 남아있는
+   * pending-save 버퍼(storage/pendingSaveBuffer.ts)가 있으면 그 값을 신뢰해서
+   * 대체하고, IndexedDB에도 다시 반영한다(자가 복구) — 그래야 이후로는 버퍼 없이도
+   * 일관된 상태가 된다. 이 함수는 항상 suppressAutosave가 켜진 상태(openPage 진행 중)
+   * 에서만 호출되므로, 복구 도중 다른 저장과 겹칠 걱정이 없다. */
+  async function loadPageObjectsRecovering(pageId: string): Promise<CanvasObject[]> {
+    const stored = await loadPageObjects(pageId);
+    const pending = readPendingSnapshot(pageId);
+    if (!pending) return stored;
+
+    console.warn('[my-note-web] 커밋 확인되지 않은 자동저장을 복구합니다:', pageId);
+    try {
+      await savePageObjects(pageId, pending);
+    } catch (e) {
+      console.error('[my-note-web] 복구된 값을 IndexedDB에 다시 저장하지 못함', e);
+    }
+    clearPendingSnapshot(pageId);
+    return pending;
   }
 
   function scheduleSave() {
@@ -129,6 +173,39 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
     autosaveWatchStarted = true;
     useObjectsStore.subscribe(scheduleSave);
     useViewportStore.subscribe(scheduleSave);
+
+    // 버그 수정(리사이즈 직후 새로고침하면 크기가 되돌아옴), 1차 시도: visibilitychange(hidden)/
+    // pagehide에서 남은 타이머를 flush하면 될 줄 알았으나, 실제로는(F5/새로고침 시)
+    // 크로미움 기준으로 이 이벤트들 자체가 발생하지 않거나 너무 늦게 발생해 신뢰할 수 없었다
+    // (Playwright로 직접 재현: reload() 전후로 두 이벤트 모두 전혀 fire되지 않음을 확인).
+    // 그래도 탭을 백그라운드로 보내거나 닫는 경우엔 도움이 될 수 있어 남겨둔다.
+    const flushIfPending = () => {
+      if (saveTimer) void flushActivePage();
+    };
+    window.addEventListener('pagehide', flushIfPending);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flushIfPending();
+    });
+
+    // 진짜 수정: 디바운스 타이머(브라우저 unload 타이밍에 기대는 방식)에 의존하는 대신,
+    // 리사이즈/드래그처럼 시작·끝이 명확한 제스처가 끝나는 그 순간(historyStore의
+    // activeTransaction이 non-null → null로 바뀌는 순간, 즉 endTransaction() 호출 시점)에
+    // 맞춰 대기 중인 디바운스를 취소하고 즉시(동기적으로 시작하는) flush를 건다. 이렇게 하면
+    // "사용자가 핸들을 놓자마자 곧바로 새로고침"해도 그 사이에 디바운스 창이 남아있을 일이
+    // 없다 — pointerup 핸들러(useObjectResize.ts 등)가 endTransaction()을 부르는 시점과
+    // 이 구독이 반응하는 시점 사이에는 새로고침이 끼어들 틈(비동기 대기)이 없기 때문이다.
+    let wasInTransaction = false;
+    useHistoryStore.subscribe((state) => {
+      const inTransaction = state.activeTransaction !== null;
+      if (wasInTransaction && !inTransaction) {
+        if (saveTimer) {
+          clearTimeout(saveTimer);
+          saveTimer = null;
+        }
+        if (!suppressAutosave && get().currentPageId) void flushActivePage();
+      }
+      wasInTransaction = inTransaction;
+    });
   }
 
   async function persistFile(file: FileRecord) {
@@ -275,7 +352,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
         adjustImageRefs(oldObjects, -1);
         useHistoryStore.getState().reset();
 
-        const objects = await loadPageObjects(pageId);
+        const objects = await loadPageObjectsRecovering(pageId);
         adjustImageRefs(objects, 1);
         useObjectsStore.getState().loadObjects(keyBy(objects));
         useViewportStore.getState().setViewport(target.viewport ?? DEFAULT_VIEWPORT);
