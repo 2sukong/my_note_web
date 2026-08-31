@@ -160,9 +160,19 @@ export function renderRunsIntoDom(el: HTMLElement, runs: TextRun[], spacers: Ann
  * spacer(data-annotation-spacer)는 항상 건너뛴다 — 텍스트가 없는 순수 레이아웃용
  * 요소라 store에 반영될 내용이 없다. 같은 run이 spacer 때문에 두 조각(span)으로
  * 나뉘어 있을 수 있으므로 data-run-index로 그룹핑해서 원래 run의 텍스트로 합친다.
- * 구조를 신뢰할 수 없는 드문 경우(브라우저가 자체적으로 DOM을 바꿔버림)엔 안전하게
- * 단일 plain run(또는 빈 줄)으로 접어서 반환한다 — 스타일 정보를 잃더라도 텍스트
- * 자체가 깨지는 것보다는 낫다.
+ *
+ * 버그 수정(드래그로 한 run 전체를 선택해 지우면 그 옆 run 색이 사라짐): 예전엔 spacer가
+ * 없는 줄에서 "남은 span 개수 === fallbackRuns 개수"를 요구했는데, 브라우저가
+ * Backspace/Delete로 어떤 run 전체가 지워지면 그 span 자체를 DOM에서 통째로 없애버려서
+ * (span이 비어 남아있는 게 아니라) 개수가 어긋나는 경우가 흔했다. 그러면 이 함수가 "구조를
+ * 신뢰할 수 없다"고 오판해 남아있는 span들의 스타일까지 전부 버리고 단일 plain run으로
+ * 접어버려, 지우지 않은 run의 색까지 검은 글자로 바뀌어 보였다. span 개수가 아니라 각
+ * span에 이미 박혀 있는 data-run-index로 "어느 run이 살아남았는지"를 판단하면, 통째로
+ * 지워진 run은 자연스럽게 빈 텍스트(아래 filter로 제거)가 되고 살아남은 run은 원래
+ * 스타일을 그대로 유지한다. 정말로 구조를 신뢰할 수 없는 경우(브라우저가 span이 아닌
+ * 다른 요소를 넣었거나 range를 벗어난 인덱스를 붙인 경우)에만 안전하게 단일 plain
+ * run(또는 빈 줄)으로 접어서 반환한다 — 스타일 정보를 잃더라도 텍스트 자체가 깨지는
+ * 것보다는 낫다.
  */
 export function readRunsFromDom(el: HTMLElement, fallbackRuns: TextRun[]): TextRun[] {
   if (el.children.length === 0) {
@@ -171,16 +181,6 @@ export function readRunsFromDom(el: HTMLElement, fallbackRuns: TextRun[]): TextR
   }
   const children = Array.from(el.children) as HTMLElement[];
   const textChildren = children.filter((c) => c.dataset.annotationSpacer !== '1');
-
-  if (!children.some((c) => c.dataset.annotationSpacer === '1')) {
-    if (children.length !== fallbackRuns.length || children.some((c) => c.tagName !== 'SPAN')) {
-      const flat = el.textContent ?? '';
-      return flat ? [{ text: flat }] : [];
-    }
-    return fallbackRuns
-      .map((run, i) => ({ ...run, text: children[i].textContent ?? '' }))
-      .filter((r) => r.text.length > 0);
-  }
 
   if (textChildren.some((c) => c.tagName !== 'SPAN' || c.dataset.runIndex === undefined)) {
     const flat = textChildren.map((c) => c.textContent ?? '').join('');
@@ -192,7 +192,7 @@ export function readRunsFromDom(el: HTMLElement, fallbackRuns: TextRun[]): TextR
     byIndex.set(idx, (byIndex.get(idx) ?? '') + (c.textContent ?? ''));
   }
   const maxIndex = Math.max(-1, ...Array.from(byIndex.keys()));
-  if (maxIndex + 1 !== fallbackRuns.length) {
+  if (maxIndex >= fallbackRuns.length) {
     const flat = textChildren.map((c) => c.textContent ?? '').join('');
     return flat ? [{ text: flat }] : [];
   }

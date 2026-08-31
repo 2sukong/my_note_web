@@ -63,6 +63,18 @@ export interface TextObject extends BaseObject {
   /** 줄 사이 상하 간격. line-height 배수(글자 크기에 비례)로, 1.0~3.0 범위.
    * undefined면 기존 기본값(NATURAL_LINE_HEIGHT_RATIO=1.4)과 동일하게 렌더링된다. */
   lineHeight?: number;
+  /**
+   * 버그 수정(리사이즈로 상자를 내용보다 작게 줄여도 새로고침하면 다시 커짐):
+   * 사용자가 리사이즈 핸들로 세로 크기를 직접 정한 적이 있으면 true — 컴포넌트가
+   * 리마운트되면 초기화되는 React ref(TextObjectView.tsx의 hasAutoFitHeightOnceRef)와
+   * 달리 객체 자체에 저장되므로 새로고침에도 살아남는다. true가 되면 그때부터는
+   * TextObjectView.tsx의 "내용에 맞춰 자동으로 커지는" 로직이 이 객체에는 더 이상
+   * 적용되지 않고, height는 전적으로 사용자가 리사이즈한 값 그대로 유지된다
+   * (store/objectsStore.ts의 resizeObjectTo가 세운다. 세로 크기가 실제로 바뀌는
+   * 리사이즈에서만 true로 세팅되고, 한 번 true가 되면 계속 true다 — 다시 지워지는
+   * 경우는 없다). undefined/false는 기존 동작(자동 높이 활성)과 동일하다(하위 호환).
+   */
+  manualHeight?: boolean;
 }
 
 export interface ImageObject extends BaseObject {

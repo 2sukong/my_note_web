@@ -36,6 +36,46 @@ export function getCaretOffset(lineEl: HTMLElement): number {
 }
 
 /**
+ * 현재 selection의 시작/끝이 둘 다 lineEl 안에 있을 때만 그 flat [start, end) 오프셋을
+ * 반환한다(collapsed면 start === end). selection이 lineEl 밖으로 걸쳐 있거나 아예 없으면
+ * null — 붙여넣기(onPaste)에서 "지금 커서/선택이 정확히 이 줄의 어디인지"를 판정하는 데 쓴다.
+ */
+export function getSelectionOffsetsWithinLine(lineEl: HTMLElement): { start: number; end: number } | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  if (!lineEl.contains(range.startContainer) || !lineEl.contains(range.endContainer)) return null;
+  const a = flatOffsetOf(lineEl, range.startContainer, range.startOffset);
+  const b = flatOffsetOf(lineEl, range.endContainer, range.endOffset);
+  return { start: Math.min(a, b), end: Math.max(a, b) };
+}
+
+/**
+ * 요구사항(줄 사이로 드래그 선택): 브라우저는 마우스 드래그로 만드는 네이티브 선택을
+ * 시작한 contentEditable 요소(=한 줄) 경계 밖으로 확장해주지 않는다(TextObjectView.tsx의
+ * 각 줄이 독립된 contentEditable이라서 겪는 제약) — 그래서 여러 줄에 걸친 드래그 선택은
+ * 이 함수로 좌표를 직접 읽어 Selection.setBaseAndExtent로 우리가 수동으로 갱신해야 한다.
+ * caretOffsetFromPoint와 달리 특정 lineEl 소속 여부를 확인하지 않는 문서 전역 버전이다
+ * (드래그 시작점과 현재 지점이 서로 다른 줄에 있어도 그대로 위치를 얻어야 하므로).
+ */
+export function caretPositionFromClientPoint(clientX: number, clientY: number): { node: Node; offset: number } | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
+  };
+  if (typeof document.caretRangeFromPoint === 'function') {
+    const range = document.caretRangeFromPoint(clientX, clientY);
+    if (!range) return null;
+    return { node: range.startContainer, offset: range.startOffset };
+  }
+  if (typeof doc.caretPositionFromPoint === 'function') {
+    const pos = doc.caretPositionFromPoint(clientX, clientY);
+    if (!pos) return null;
+    return { node: pos.offsetNode, offset: pos.offset };
+  }
+  return null;
+}
+
+/**
  * Phase 4(2차): 마우스 클릭 좌표(clientX/clientY) 아래에 있는 flat 문자 오프셋을 구한다.
  * "이 줄의 어떤 글자를 클릭했는가"를 알아야 그 글자가 하이라이트 안인지 판단할 수 있다
  * (하이라이트 rect 자체는 텍스트보다 아래에 그려져서 직접 pointer 이벤트를 받을 수

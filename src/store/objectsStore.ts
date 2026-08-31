@@ -415,6 +415,15 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
       mutate((draft) => {
         const target = draft[id];
         if (!target) return;
+        // 버그 수정(리사이즈 직후 F5 하면 텍스트 상자가 내용 크기로 다시 커짐):
+        // 세로 크기가 실제로 바뀌는 리사이즈라면(타입/사이즈 무관하게 x/y/width만
+        // 바뀌는 리사이즈는 해당 없음) TextObject에 한해 "사용자가 높이를 직접
+        // 정했다"고 기록해둔다 — objects/text/TextObjectView.tsx의 자동 높이
+        // 로직이 이 플래그를 보고 더 이상 개입하지 않는다(types/object.ts의
+        // TextObject.manualHeight 주석 참고).
+        if (target.type === 'text' && target.height !== box.height) {
+          target.manualHeight = true;
+        }
         target.x = box.x;
         target.y = box.y;
         target.width = box.width;

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { TextObject } from '../../types/object';
-import type { TextAnnotation, TextLine } from './indentation/types';
+import type { TextAnnotation, TextLine, TextRun } from './indentation/types';
 import { createLineId, lineText } from './indentation/types';
 import {
   BULLET_INDENT_UNIT,
@@ -26,7 +26,18 @@ import { useInteractionStore } from '../../store/interactionStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useToolStore } from '../../store/toolStore';
 import { useFontStore } from '../../store/fontStore';
-import { caretOffsetFromPoint, focusLineAt, getCaretOffset, measureCharOffsetPx, mergeClientRectsByLine, rangeForOffsets } from './domCaret';
+import {
+  caretOffsetFromPoint,
+  caretPositionFromClientPoint,
+  focusLineAt,
+  getCaretOffset,
+  getSelectionOffsetsWithinLine,
+  measureCharOffsetPx,
+  mergeClientRectsByLine,
+  rangeForOffsets,
+} from './domCaret';
+import { captureSelectionSegments } from './selectionCapture';
+import type { SelectionSegment } from './selectionCapture';
 import { useTextRangeSelection } from './useTextRangeSelection';
 import { DEFAULT_FONT_FAMILY } from './fontOptions';
 import { fontHeightScaleFor } from './fontMetrics';
@@ -419,6 +430,16 @@ export function TextObjectView({ object }: { object: TextObject }) {
       if (lineDomMatchesRuns(el, line.runs, spacers)) continue;
       if (isComposingRef.current && document.activeElement === el) continue;
       renderRunsIntoDom(el, line.runs, spacers);
+      // 버그 수정(undo 직후 같은 편집을 반복하면 두 번째 Ctrl+Z가 씹힘): 여기서 DOM을
+      // store 기준으로 강제로 다시 그렸다는 것은 "외부에서"(undo/redo, PropertiesPanel의
+      // 구간 서식 적용 등) 텍스트가 바뀌었다는 뜻이다. syncLineFromDom의 dedupe
+      // 캐시(lastProcessedTextRef)를 그대로 두면, 예전에 이미 처리했던 것과 우연히 같은
+      // 최종 텍스트가 다시 나타났을 때(예: 삭제 → undo → 같은 삭제 재수행) 실제로는
+      // store가 그 사이 되돌아가 있었는데도 "이미 처리한 텍스트"로 오인해 handleInput을
+      // 건너뛴다 — store가 갱신되지 않으니 history에도 기록되지 않고, 다음 Ctrl+Z가
+      // undo할 대상이 없어 아무 반응도 하지 않는 버그로 이어졌다. 방금 다시 그린 DOM
+      // 텍스트로 캐시를 맞춰두면 이후 비교가 항상 "지금 실제 DOM/store 상태" 기준이 된다.
+      lastProcessedTextRef.current.set(line.id, el.textContent ?? '');
     }
 
     const req = focusRequestRef.current;
@@ -616,19 +637,29 @@ export function TextObjectView({ object }: { object: TextObject }) {
       // updatedAt이 아직 같다는(=생성된 뒤 단 한 번도 수정되지 않은, 진짜 방금 만든
       // 객체라는) 조건을 추가로 걸어서, 기존에 저장돼 있던(즉 한 번이라도 수정된 적
       // 있는) 객체는 새로고침 직후에도 항상 "커지는 방향으로만" 규칙만 적용받게 한다.
-      const isGenuinelyFreshObject = object.createdAt === object.updatedAt;
-      const shouldApply =
-        hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
-          ? nextHeight - object.height > 0.5
-          : Math.abs(nextHeight - object.height) > 0.5;
-      hasAutoFitHeightOnceRef.current = true;
-      if (shouldApply) {
-        // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
-        // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
-        // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
-        // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
-        // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
-        useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+      // 버그 수정(리사이즈로 상자를 내용보다 작게 줄여도 새로고침하면 다시 커짐):
+      // object.manualHeight(types/object.ts 주석 참고)가 true면 사용자가 리사이즈
+      // 핸들로 세로 크기를 직접 정한 것이므로, 아래 "내용에 맞춰 자동으로 커지는"
+      // 로직 자체를 건너뛴다 — 이 값은 객체에 저장돼 새로고침에도 살아남으므로,
+      // 컴포넌트가 리마운트되는 새로고침 직후에도 사용자가 정한 크기가 그대로
+      // 유지된다. 아직 한 번도 리사이즈된 적 없는(타이핑만으로 만들어진) 객체는
+      // 아래 기존 로직 그대로 "내용에 맞춰 커지는(첫 측정에 한해 줄기도 하는)"
+      // 동작을 유지한다.
+      if (!object.manualHeight) {
+        const isGenuinelyFreshObject = object.createdAt === object.updatedAt;
+        const shouldApply =
+          hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
+            ? nextHeight - object.height > 0.5
+            : Math.abs(nextHeight - object.height) > 0.5;
+        hasAutoFitHeightOnceRef.current = true;
+        if (shouldApply) {
+          // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
+          // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
+          // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
+          // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
+          // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
+          useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+        }
       }
     }
     // annotationHeights를 deps에 포함해야 한다: 주석 높이가 바뀌면(줄 수 증가) 그 줄의
@@ -659,6 +690,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
     object.baseFontSize,
     object.fontFamily,
     object.lineHeight,
+    object.manualHeight,
     isEditing,
     annotationHeights,
     customFonts,
@@ -666,6 +698,181 @@ export function TextObjectView({ object }: { object: TextObject }) {
 
   const updateLines = (nextLines: TextLine[]) => {
     setTextLines(object.id, nextLines);
+  };
+
+  /**
+   * 요구사항(줄 사이로 드래그 선택): 여러 줄에 걸친 선택(segments.length > 1 — 각 줄이
+   * 독립된 contentEditable이라, 이런 선택은 아래 line div의 onPointerDown이 Selection
+   * API(setBaseAndExtent)로 직접 만들어준 것이다)을 insertedRuns로 갈아치운다. 선택된
+   * 첫 줄의 [start, 끝)과 마지막 줄의 [0, end) 사이(=완전히 선택된 중간 줄들 포함)를
+   * 전부 들어내고, 그 자리에 insertedRuns를 끼워 하나의 줄로 합친다.
+   * Backspace(insertedRuns=[]) · 문자 입력으로 선택 덮어쓰기 · 잘라내기 셋이 이 함수
+   * 하나를 공유한다.
+   */
+  function computeCrossLineReplace(
+    segments: SelectionSegment[],
+    insertedRuns: TextRun[],
+  ): { nextLines: TextLine[]; lineId: string; offset: number } | null {
+    if (segments.length < 2) return null;
+    const firstSeg = segments[0];
+    const lastSeg = segments[segments.length - 1];
+    const firstLineIndex = object.lines.findIndex((l) => l.id === firstSeg.lineId);
+    const lastLineIndex = object.lines.findIndex((l) => l.id === lastSeg.lineId);
+    if (firstLineIndex === -1 || lastLineIndex === -1 || firstLineIndex > lastLineIndex) return null;
+
+    const firstLine = object.lines[firstLineIndex];
+    const lastLine = object.lines[lastLineIndex];
+    const insertedLength = insertedRuns.reduce((n, r) => n + r.text.length, 0);
+    const joinOffset = firstSeg.start;
+    const shiftAmount = joinOffset + insertedLength;
+
+    const { before: runsBefore } = splitRunsAtOffset(firstLine.runs, firstSeg.start);
+    const { after: runsAfter } = splitRunsAtOffset(lastLine.runs, lastSeg.end);
+    const mergedRuns = joinRuns(joinRuns(runsBefore, insertedRuns), runsAfter);
+
+    const { before: highlightsBefore } = splitHighlightsAtOffset(firstLine.highlights, firstSeg.start);
+    const { after: highlightsAfterRaw } = splitHighlightsAtOffset(lastLine.highlights, lastSeg.end);
+    const mergedHighlights = [
+      ...highlightsBefore,
+      ...highlightsAfterRaw.map((h) => ({ ...h, start: h.start + shiftAmount, end: h.end + shiftAmount })),
+    ];
+
+    const { before: annotationsBefore } = splitHighlightsAtOffset(firstLine.annotations, firstSeg.start);
+    const { after: annotationsAfterRaw } = splitHighlightsAtOffset(lastLine.annotations, lastSeg.end);
+    const mergedAnnotations = [
+      ...annotationsBefore,
+      ...annotationsAfterRaw.map((a) => ({ ...a, start: a.start + shiftAmount, end: a.end + shiftAmount })),
+    ];
+
+    const mergedLine: TextLine = {
+      ...firstLine,
+      runs: mergedRuns,
+      highlights: mergedHighlights.length ? mergedHighlights : undefined,
+      annotations: mergedAnnotations.length ? mergedAnnotations : undefined,
+    };
+
+    const nextLines = [...object.lines];
+    nextLines.splice(firstLineIndex, lastLineIndex - firstLineIndex + 1, mergedLine);
+
+    return { nextLines, lineId: mergedLine.id, offset: shiftAmount };
+  }
+
+  /**
+   * 요구사항(붙여넣기가 커서 위치에 반영되도록): 줄마다 독립된 contentEditable이라
+   * 커스텀 핸들러가 없으면 브라우저 기본 붙여넣기에 맡겨지는데, 줄바꿈이 있는 텍스트를
+   * 붙이면 브라우저가 중첩 <div>를 만들고 이 앱의 DOM 동기화(lineDomSync.ts의
+   * readRunsFromDom)가 그 구조를 모르는 채로 textContent만 이어붙여 버려서 줄바꿈이
+   * 사라지고 커서 위치도 어긋난다. 그래서 항상 e.preventDefault()로 기본 동작을 막고
+   * 클립보드의 순수 텍스트를 직접 커서(또는 선택 구간) 자리에 반영한다 — 줄바꿈이
+   * 없으면 이 줄 안에서만 처리하고, 있으면 handleEnter와 같은 원리로 새 줄들을 만든다.
+   */
+  const handlePaste = (lineIndex: number) => (e: ReactClipboardEvent<HTMLDivElement>) => {
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!text) return;
+    e.preventDefault();
+
+    const lineEl = e.currentTarget;
+    const current = object.lines[lineIndex];
+    const caret = getCaretOffset(lineEl);
+    const withinLine = getSelectionOffsetsWithinLine(lineEl);
+    const start = withinLine ? withinLine.start : caret;
+    const end = withinLine ? withinLine.end : caret;
+
+    const segments = text.split(/\r\n|\r|\n/);
+
+    const { before: runsBeforeStart } = splitRunsAtOffset(current.runs, start);
+    const { after: runsAfterEnd } = splitRunsAtOffset(current.runs, end);
+    const { before: highlightsBeforeStart } = splitHighlightsAtOffset(current.highlights, start);
+    const { after: highlightsAfterEndRaw } = splitHighlightsAtOffset(current.highlights, end);
+    const { before: annotationsBeforeStart } = splitHighlightsAtOffset(current.annotations, start);
+    const { after: annotationsAfterEndRaw } = splitHighlightsAtOffset(current.annotations, end);
+
+    const nextLines = [...object.lines];
+
+    if (segments.length === 1) {
+      const pasted = segments[0];
+      const pastedRuns = pasted ? [{ text: pasted }] : [];
+      const mergedRuns = joinRuns(joinRuns(runsBeforeStart, pastedRuns), runsAfterEnd);
+      const shiftAmount = start + pasted.length;
+      const mergedHighlights = [
+        ...highlightsBeforeStart,
+        ...highlightsAfterEndRaw.map((h) => ({ ...h, start: h.start + shiftAmount, end: h.end + shiftAmount })),
+      ];
+      const mergedAnnotations = [
+        ...annotationsBeforeStart,
+        ...annotationsAfterEndRaw.map((a) => ({ ...a, start: a.start + shiftAmount, end: a.end + shiftAmount })),
+      ];
+      nextLines[lineIndex] = {
+        ...current,
+        runs: mergedRuns,
+        highlights: mergedHighlights.length ? mergedHighlights : undefined,
+        annotations: mergedAnnotations.length ? mergedAnnotations : undefined,
+      };
+      focusRequestRef.current = { lineId: current.id, offset: shiftAmount };
+      updateLines(nextLines);
+      return;
+    }
+
+    const lastIndex = segments.length - 1;
+    nextLines[lineIndex] = {
+      ...current,
+      runs: joinRuns(runsBeforeStart, segments[0] ? [{ text: segments[0] }] : []),
+      highlights: highlightsBeforeStart.length ? highlightsBeforeStart : undefined,
+      annotations: annotationsBeforeStart.length ? annotationsBeforeStart : undefined,
+    };
+
+    const middleLines: TextLine[] = [];
+    for (let i = 1; i < lastIndex; i++) {
+      middleLines.push({
+        id: createLineId(),
+        runs: segments[i] ? [{ text: segments[i] }] : [],
+        anchor: current.anchor,
+      });
+    }
+
+    const lastSegmentText = segments[lastIndex];
+    const lastLineShift = lastSegmentText.length;
+    const lastLine: TextLine = {
+      id: createLineId(),
+      runs: joinRuns(lastSegmentText ? [{ text: lastSegmentText }] : [], runsAfterEnd),
+      anchor: current.anchor,
+      highlights: highlightsAfterEndRaw.length
+        ? highlightsAfterEndRaw.map((h) => ({ ...h, start: h.start + lastLineShift, end: h.end + lastLineShift }))
+        : undefined,
+      annotations: annotationsAfterEndRaw.length
+        ? annotationsAfterEndRaw.map((a) => ({ ...a, start: a.start + lastLineShift, end: a.end + lastLineShift }))
+        : undefined,
+    };
+
+    nextLines.splice(lineIndex + 1, 0, ...middleLines, lastLine);
+    focusRequestRef.current = { lineId: lastLine.id, offset: lastLineShift };
+    updateLines(nextLines);
+  };
+
+  /**
+   * 요구사항(줄 사이로 드래그 선택): 여러 줄에 걸친 선택 상태에서 Ctrl+X를 누르면,
+   * 네이티브 잘라내기는 포커스가 있는 줄(하나의 contentEditable)만 지울 뿐 다른
+   * 줄들의 선택 구간은 그대로 남기거나 깨뜨릴 수 있다 — 그래서 이 경우만 직접
+   * 클립보드에 선택된 텍스트를 쓰고 computeCrossLineReplace로 지운다. 한 줄 안의
+   * 선택은(segments.length <= 1) 기존처럼 브라우저 기본 잘라내기에 맡긴다.
+   */
+  const handleCut = (e: ReactClipboardEvent<HTMLDivElement>) => {
+    const segments = captureSelectionSegments().filter((s) => s.objectId === object.id);
+    if (segments.length < 2) return;
+    e.preventDefault();
+
+    const text = segments
+      .map((seg) => {
+        const line = object.lines.find((l) => l.id === seg.lineId);
+        return line ? lineText(line).slice(seg.start, seg.end) : '';
+      })
+      .join('\n');
+    e.clipboardData?.setData('text/plain', text);
+
+    const result = computeCrossLineReplace(segments, []);
+    if (!result) return;
+    focusRequestRef.current = { lineId: result.lineId, offset: result.offset };
+    updateLines(result.nextLines);
   };
 
   const handleDoubleClick = () => {
@@ -863,6 +1070,44 @@ export function TextObjectView({ object }: { object: TextObject }) {
       return;
     }
 
+    // 요구사항(Tab은 다음 줄로 넘어가지 않고 공백 4칸): contentEditable은 기본적으로
+    // Tab을 "다음 포커스 대상으로 이동"으로 처리한다(각 줄이 독립된 focusable
+    // contentEditable이라 실질적으로 "다음 줄로 넘어가는" 것처럼 보인다). execCommand로
+    // 직접 삽입하면 브라우저가 뒤이어 'input' 이벤트를 쏴줘서 아래 onInput의 기존
+    // 동기화 경로(syncLineFromDom)를 그대로 재사용할 수 있다.
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const segments = captureSelectionSegments().filter((s) => s.objectId === object.id);
+      if (segments.length > 1) {
+        const result = computeCrossLineReplace(segments, [{ text: '    ' }]);
+        if (result) {
+          focusRequestRef.current = { lineId: result.lineId, offset: result.offset };
+          updateLines(result.nextLines);
+        }
+        return;
+      }
+      document.execCommand('insertText', false, '    ');
+      return;
+    }
+
+    // 요구사항(줄 사이로 드래그 선택): 여러 줄에 걸친 선택 상태에서 일반 문자를 입력하면,
+    // 네이티브 입력은 포커스가 있는 줄(하나의 contentEditable)만 갱신하고 다른 줄들의
+    // 선택 구간은 그대로 남아 데이터가 어긋난다 — 그래서 이 경우만 선택 전체를 지우고
+    // 그 자리에 입력한 문자를 끼워 넣는다. 한 줄 안의 선택은(segments.length <= 1)
+    // 브라우저 기본 동작(선택 부분을 지우고 타이핑)에 맡긴다.
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+      const segments = captureSelectionSegments().filter((s) => s.objectId === object.id);
+      if (segments.length > 1) {
+        e.preventDefault();
+        const result = computeCrossLineReplace(segments, [{ text: e.key }]);
+        if (result) {
+          focusRequestRef.current = { lineId: result.lineId, offset: result.offset };
+          updateLines(result.nextLines);
+        }
+        return;
+      }
+    }
+
     if (e.key === 'Enter') {
       e.preventDefault();
       const fullText = lineEl.textContent ?? '';
@@ -872,6 +1117,17 @@ export function TextObjectView({ object }: { object: TextObject }) {
     }
 
     if (e.key === 'Backspace') {
+      const crossLineSegments = captureSelectionSegments().filter((s) => s.objectId === object.id);
+      if (crossLineSegments.length > 1) {
+        e.preventDefault();
+        const result = computeCrossLineReplace(crossLineSegments, []);
+        if (result) {
+          focusRequestRef.current = { lineId: result.lineId, offset: result.offset };
+          updateLines(result.nextLines);
+        }
+        return;
+      }
+
       const offset = getCaretOffset(lineEl);
       const selection = window.getSelection();
       const collapsed = selection ? selection.isCollapsed : true;
@@ -1016,10 +1272,61 @@ export function TextObjectView({ object }: { object: TextObject }) {
                 }
               : undefined
           }
+          onPaste={isEditing ? handlePaste(index) : undefined}
+          onCut={isEditing ? handleCut : undefined}
           onPointerDown={(e) => {
             if (isEditing) {
               e.stopPropagation();
               onLinePointerDown(e.ctrlKey || e.metaKey);
+              // 요구사항(줄 사이로 드래그 선택): 처음엔 pointerdown의 기본 동작을 막지
+              // 않고 pointermove에서만 Selection.setBaseAndExtent로 선택을 넓혀봤는데도
+              // 여전히 안 됐다 — 원인은 우리가 preventDefault를 안 했으므로 브라우저
+              // 자신의 네이티브 드래그-선택(mousedown에서 시작해 매 mousemove마다
+              // "이 gesture는 이 contentEditable 안에서만 확장 가능"이라고 스스로
+              // 판단해 되돌리는 내부 로직)이 우리 것과 별개로 계속 동작해서, 우리가
+              // setBaseAndExtent로 넓힌 순간 바로 다음 native mousemove 처리에서 다시
+              // 원래 줄 경계로 clamp해버렸기 때문이다.
+              //
+              // 그래서 이제 (더블/트리플 클릭이 아닌) 단일 클릭에 한해 pointerdown
+              // 자체를 preventDefault한다 — Pointer Events 스펙상 취소 가능한
+              // pointerdown의 기본 동작을 막으면 그 뒤로 이어지는 호환용 mousedown/
+              // mousemove/mouseup/click이 이 제스처 동안 아예 발생하지 않아서(브라우저의
+              // 네이티브 드래그-선택 자체가 시작되지 않아서), 우리가 직접 캐럿 배치부터
+              // 드래그 확장까지 전부 책임지면 더 이상 경쟁 상대가 없다. 더블/트리플
+              // 클릭(e.detail > 1)은 그대로 건드리지 않아 "더블클릭으로 단어 선택" 같은
+              // 네이티브 동작은 예전처럼 남는다(다만 그 경우는 여전히 한 줄 안으로 제한됨).
+              if (e.button === 0 && e.detail <= 1) {
+                const lineEl = e.currentTarget;
+                const anchorPos = caretPositionFromClientPoint(e.clientX, e.clientY);
+                if (anchorPos) {
+                  e.preventDefault();
+                  lineEl.focus();
+                  window.getSelection()?.setBaseAndExtent(anchorPos.node, anchorPos.offset, anchorPos.node, anchorPos.offset);
+
+                  const handleDragMove = (moveEvent: PointerEvent) => {
+                    if (moveEvent.buttons !== 1) {
+                      cleanup();
+                      return;
+                    }
+                    const current = caretPositionFromClientPoint(moveEvent.clientX, moveEvent.clientY);
+                    if (!current) return;
+                    // 이 텍스트 객체 밖(다른 객체/캔버스 빈 곳)으로 나가면 그 지점은
+                    // 무시하고 선택을 마지막으로 유효했던 지점에 그대로 둔다 — 서로
+                    // 다른 TextObject 사이로 선택이 새는 것을 막는다.
+                    const currentEl =
+                      current.node.nodeType === Node.TEXT_NODE ? current.node.parentElement : (current.node as Element);
+                    if (!currentEl?.closest(`[data-object-id="${object.id}"][data-line-id]`)) return;
+                    window.getSelection()?.setBaseAndExtent(anchorPos.node, anchorPos.offset, current.node, current.offset);
+                  };
+                  const handleDragEnd = () => cleanup();
+                  function cleanup() {
+                    window.removeEventListener('pointermove', handleDragMove);
+                    window.removeEventListener('pointerup', handleDragEnd);
+                  }
+                  window.addEventListener('pointermove', handleDragMove);
+                  window.addEventListener('pointerup', handleDragEnd);
+                }
+              }
               return;
             }
             // Phase 4(2차): select 도구에서만 "이 줄을 클릭했는지"를 추적한다 —
