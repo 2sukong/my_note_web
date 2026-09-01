@@ -32,6 +32,10 @@ import { ImageCropOverlay } from './ImageCropOverlay';
 import { AlignmentGuideOverlay } from './AlignmentGuideOverlay';
 import { PropertiesPanel } from './PropertiesPanel';
 import { CanvasSearch } from './CanvasSearch';
+import { PdfLibraryRail } from './pdf/PdfLibraryRail';
+import { PdfViewerPanel } from './pdf/PdfViewerPanel';
+import { PdfOverlayPropertiesPanel } from './pdf/PdfOverlayPropertiesPanel';
+import { usePdfOverlaySelectionStore } from '../store/pdfOverlaySelectionStore';
 import './Canvas.css';
 
 const GRID_SIZE = 40; // world 단위. zoom에 따라 화면상 픽셀 크기가 변한다.
@@ -53,6 +57,12 @@ export function Canvas() {
     [objectsRecord],
   );
   const deselect = useInteractionStore((s) => s.deselect);
+  // 요구사항(PDF 오버레이 속성 패널): PDF Viewer 안에서 텍스트/화살표/사각형을 선택했으면
+  // 오른쪽 사이드바는 메인 캔버스용 PropertiesPanel 대신 PdfOverlayPropertiesPanel을
+  // 보여준다 — 이 selectedId는 Viewer가 닫히거나 페이지를 넘길 때 항상 clear()되므로
+  // (pdfOverlaySelectionStore.ts 주석 참고) "PDF Viewer가 열려 있는지"를 따로 검사할
+  // 필요 없이 이 값의 유무만으로 정확히 분기할 수 있다.
+  const pdfOverlaySelectedId = usePdfOverlaySelectionStore((s) => s.selectedId);
 
   // 버그 수정: canvas-root는 왼쪽 파일트리 사이드바 폭만큼 화면 왼쪽 끝에서 오프셋돼
   // 있다 — clientToWorld(utils/coords.ts)가 포인터 좌표를 world로 바꿀 때 그 오프셋을
@@ -192,8 +202,10 @@ export function Canvas() {
       onDragOver={handleDragOver}
     >
       <CanvasSearch />
+      <PdfLibraryRail />
+      <PdfViewerPanel />
       <Toolbar />
-      <PropertiesPanel />
+      {pdfOverlaySelectedId ? <PdfOverlayPropertiesPanel /> : <PropertiesPanel />}
       <ObjectContextMenu />
 
       <input

@@ -1,0 +1,314 @@
+/* PDF Reference Viewer 패널(Phase 5). v3 §1-3 확정대로 왼쪽 도킹 + 화면 전체 높이 +
+   오른쪽 모서리 리사이즈. Canvas/world 좌표와 무관한 화면 고정 chrome이라 canvas-search/
+   pdf-library-rail과 같은 위치 관례(--file-tree-width 기준)를 그대로 따른다. */
+.pdf-viewer-panel {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--file-tree-width, 240px) + var(--pdf-rail-offset, 58px));
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+  box-shadow: var(--shadow-panel);
+  /* 열기/닫기 애니메이션(Phase 7, 개정 — 왼쪽 파일트리 사이드바(FileTreePanel.css)와 같은
+     "폭이 당겨지고 밀리는" 방식. opacity/transform 페이드가 아니라 width 자체가 0↔실제
+     폭 사이를 오간다). PdfViewerPanel.tsx가 닫혀 있을 땐(entered=false) 인라인
+     style={{width:0}}을 주고, 열리면(entered=true) 실제 폭을 준다 — 여기 transition만
+     걸어두면 FileTreePanel.css의 `transition: width 0.15s ease`와 정확히 같은 방식으로
+     애니메이션된다. 처음 열릴 때 마운트 프레임엔 width:0으로 한 번 그린 뒤 다음 프레임에
+     실제 폭으로 바뀌게 하는 건 PdfViewerPanel.tsx의 entered 상태(requestAnimationFrame)가
+     담당한다.
+     left도 같이 transition을 걸어둔다 — 이 패널의 left 자체가 --file-tree-width를
+     참조하므로(위 left: calc(...) 참고), 왼쪽 사이드바를 접거나 펼 때 --file-tree-width가
+     바뀌면 이 패널도 Canvas.css의 .canvas-root와 마찬가지로 같이 옆으로 부드럽게
+     밀려난다(사이드바 쪽엔 별도 손 댈 것 없음 — fileTreeUiStore.ts가 이미 그 변수 하나만
+     갱신해주면 여길 포함해 이 변수를 참조하는 모든 요소가 따라간다).
+     overflow는 기본 hidden(width가 줄어드는 동안 내부 콘텐츠가 밖으로 삐져나오지 않게)
+     — 완전히 열렸을 때(.is-open)만 visible로 풀어준다. 이유: 아래
+     .pdf-viewer-resize-handle이 오른쪽 테두리에 살짝 걸치게 배치되는데(리사이즈 히트
+     영역 확보), overflow:hidden이 걸려 있으면 그 핸들이 잘려서 못 잡힌다 — 하지만
+     리사이즈는 완전히 열려 있을 때만 의미가 있으므로 .is-open에서만 풀어주면 두 요구가
+     충돌하지 않는다.
+     .is-resizing(리사이즈 핸들 드래그 중)에는 transition을 꺼서, width가 pointermove마다
+     바뀌는 동안 transition이 그 변화를 뭉개 드래그가 굼떠 보이는 걸 막는다(PdfViewerPanel.tsx
+     의 onResizePointerDown/Up이 이 클래스를 토글). */
+  overflow: hidden;
+  pointer-events: none;
+  transition: left 0.15s ease, width 0.15s ease;
+}
+
+.pdf-viewer-panel.is-open {
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.pdf-viewer-panel.is-resizing {
+  transition: none;
+}
+
+.pdf-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 10px 12px;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.pdf-viewer-title {
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.pdf-viewer-close {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-viewer-close:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.pdf-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-fill);
+  overflow: hidden;
+  padding: 12px;
+}
+
+/* Phase 6: 페이지 래스터 + 오버레이(형광펜 등)를 함께 담는 래퍼. width/height를
+   페이지의 실제 래스터 픽셀 수(PdfViewerPanel.tsx의 stagePage.width/height, 항상
+   PDF_PAGE_REFERENCE_SCALE 기준)로 그대로 주고 aspect-ratio도 같은 값으로 맞춘 뒤
+   max-width/max-height:100%로 줄어들게 하면, 브라우저가 두 방향 중 더 작게 맞춰야
+   하는 쪽 기준으로 종횡비를 유지한 채 정확히 이 stage 안에 맞는 크기로 렌더링한다.
+   그 결과 이 div의 CSS px 크기가 항상 "표시 배율"을 그대로 반영하므로,
+   useOverlayHighlightTool.ts가 getBoundingClientRect()만으로 화면 px ↔ 페이지 로컬
+   px(0..stagePage.width) 변환을 할 수 있다 — 별도로 "지금 배율"을 상태로 들고 다닐
+   필요가 없다. */
+.pdf-viewer-page {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.pdf-viewer-page img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.pdf-viewer-stage-loading {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.pdf-viewer-stage-error {
+  max-width: 80%;
+  text-align: center;
+}
+
+.pdf-viewer-stage-error-title {
+  margin: 0 0 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-danger);
+}
+
+.pdf-viewer-stage-error-detail {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  word-break: break-word;
+}
+
+.pdf-viewer-filmstrip-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 110px;
+  flex-shrink: 0;
+  padding: 6px 4px;
+  border-top: 1px solid var(--color-border);
+}
+
+.pdf-viewer-filmstrip-nav {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-viewer-filmstrip-nav:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.pdf-viewer-filmstrip {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  position: relative;
+}
+
+.pdf-viewer-filmstrip-track {
+  position: relative;
+  height: 100%;
+}
+
+/* 가상화(virtualization): 필름스트립 트랙 전체 폭은 pageCount만큼 미리 잡아두지만,
+   실제로 DOM에 그려지는 slot은 지금 스크롤 위치 근처(PdfViewerPanel.tsx의 visibleRange)
+   뿐이다 — 100페이지짜리 PDF를 열어도 한 번에 몇 개의 <img>만 존재한다. */
+.pdf-viewer-thumb-slot {
+  position: absolute;
+  top: 0;
+  height: 100%;
+}
+
+.pdf-viewer-thumb {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 2px;
+}
+
+.pdf-viewer-thumb-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-fill);
+  overflow: hidden;
+}
+
+.pdf-viewer-thumb-box img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.pdf-viewer-thumb-error {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-danger);
+}
+
+/* 요구사항: "작은 회색 페이지 번호"를 각 페이지에 표시. */
+.pdf-viewer-thumb-num {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.pdf-viewer-thumb.is-active .pdf-viewer-thumb-box {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1.5px var(--color-accent);
+}
+
+.pdf-viewer-thumb.is-active .pdf-viewer-thumb-num {
+  color: var(--color-text-secondary);
+}
+
+/* 오른쪽 모서리 리사이즈 핸들(v3 §1-3). panel이 position:fixed라 absolute 자식의
+   containing block이 되므로 별도로 position:relative를 줄 필요가 없다. */
+.pdf-viewer-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.pdf-viewer-resize-handle:hover {
+  background: var(--color-accent-soft);
+}
+
+/* Phase 6(텍스트/주석, 2026-08): PdfOverlayObjectsLayer.tsx/PdfOverlayTextView.tsx.
+   메인 캔버스의 TextObjectView.tsx는 셀렉션/테두리 표시를 인라인 스타일로 완전히
+   동적 계산하지만(zoom 보정 등), 여기는 zoom이 없는 화면 고정 좌표계라 셀렉션/테두리
+   같은 "상태에 따라 켜고 끄는" 표시는 클래스 토글 + CSS로 단순화했다. */
+.pdf-overlay-text {
+  padding: 3px 5px;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.pdf-overlay-text.has-border {
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.pdf-overlay-text.is-selected {
+  outline: 1.5px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.pdf-overlay-text.is-editing {
+  outline: 1.5px solid var(--color-accent);
+  outline-offset: 1px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.pdf-overlay-text-line {
+  cursor: text;
+}
+
+.pdf-overlay-annotation-note {
+  cursor: text;
+}
+
+/* Phase 6(화살표/사각형, 2026-08): PdfOverlayObjectsLayer.tsx/PdfOverlayShapeView.tsx.
+   .pdf-overlay-text.is-selected과 동일한 셀렉션 표시 규칙(outline)을 그대로 따른다 —
+   v1에서는 리사이즈 핸들이 없으므로 선택 상태를 보여주는 건 이 outline이 전부다. */
+.pdf-overlay-shape.is-selected {
+  outline: 1.5px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Phase 6(이미지, 2026-08): PdfOverlayObjectsLayer.tsx/PdfOverlayImageView.tsx.
+   .pdf-overlay-shape.is-selected과 동일한 셀렉션 표시 규칙 — v1에서는 리사이즈 핸들이
+   없으므로 선택 상태를 보여주는 건 이 outline이 전부다. */
+.pdf-overlay-image.is-selected {
+  outline: 1.5px solid var(--color-accent);
+  outline-offset: 2px;
+}

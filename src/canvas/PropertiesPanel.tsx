@@ -13,6 +13,7 @@ import { useTextRangeStore } from '../store/textRangeStore';
 import { applyRunStyle, representativeRunStyle } from '../objects/text/runStyle';
 import { BUILTIN_FONT_OPTIONS, DEFAULT_FONT_FAMILY } from '../objects/text/fontOptions';
 import { LINE_HEIGHT_DEFAULT, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, LINE_HEIGHT_STEP, clampLineHeight } from '../objects/text/lineSpacing';
+import { FONT_SIZE_PRESETS } from '../objects/text/fontSizePresets';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_COLOR_IDS, highlightSwatchFor } from '../objects/text/highlightColors';
 import { ANNOTATION_COLORS, ANNOTATION_COLOR_IDS, annotationVisualsFor } from '../objects/text/annotationColors';
 import { BUBBLE_FONT_SIZE_BASE } from '../objects/text/AnnotationBubble';
@@ -39,7 +40,9 @@ import {
 import { ChevronDownIcon, PlusIcon } from '../icons/Icons';
 import './PropertiesPanel.css';
 
-const FONT_SIZE_PRESETS = [12, 14, 16, 18, 20, 24, 28, 32, 36, 48];
+// FONT_SIZE_PRESETS는 objects/text/fontSizePresets.ts로 옮겼다(canvas/pdf/
+// PdfOverlayTextSection.tsx와 공유하되, 컴포넌트 파일에서 값을 export하면 oxlint의
+// react-refresh 경고가 나서 — 아래 import 참고).
 /** 주석 말풍선은 본문보다 훨씬 작게 쓰는 게 보통이라 본문용 FONT_SIZE_PRESETS와는
  * 별도의(더 작은 값 위주) 목록을 둔다 — BUBBLE_FONT_SIZE_BASE(11)를 포함한다. */
 const ANNOTATION_FONT_SIZE_PRESETS = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24];
@@ -278,7 +281,11 @@ export function PropertiesPanel() {
   return null;
 }
 
-function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+/** canvas/pdf/PdfOverlayPropertiesPanel.tsx가 그대로 재사용한다 — 외부 클릭 시
+ * 닫히는 규칙(.canvas-root/.properties-dropdown-list/.properties-color-popover 예외)이
+ * PDF 오버레이 선택에도 동일하게 맞기 때문에(PDF Viewer도 .canvas-root 안에 있다),
+ * 새로 만들지 않고 export해서 공유한다. */
+export function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -321,7 +328,7 @@ function PanelShell({ title, onClose, children }: { title: string; onClose: () =
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+export function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="properties-row">
       <span className="properties-row-label">{label}</span>
@@ -336,7 +343,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
  * 동일한 형태로 둔다 — 라벨이 길어서(다른 라벨은 2~4자) Row의 "라벨 56px 고정폭 +
  * 오른쪽 컨트롤" 가로 배치 대신, 라벨을 위에 두고 스와치를 그 아래에서 감싸게 한다.
  */
-function FrequentColorsRow({ children }: { children: React.ReactNode }) {
+export function FrequentColorsRow({ children }: { children: React.ReactNode }) {
   return (
     <div className="properties-recent-row">
       <span className="properties-recent-label">자주 사용하는 색상</span>
@@ -345,7 +352,7 @@ function FrequentColorsRow({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Tile({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
+export function Tile({ active, onClick, title, children }: { active: boolean; onClick: () => void; title: string; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -361,7 +368,7 @@ function Tile({ active, onClick, title, children }: { active: boolean; onClick: 
 /** 요구사항: 한 속성에 선택지가 여럿인 Tile 행(화살촉/선 스타일/모서리/채우기/굵기/
  * 배경/A4 절반)을 하나의 회색 트랙으로 감싼다 — 단독 토글 Tile(굵게/테두리 등)에는
  * 쓰지 않는다. */
-function TileGroup({ children }: { children: React.ReactNode }) {
+export function TileGroup({ children }: { children: React.ReactNode }) {
   return <div className="properties-tile-group">{children}</div>;
 }
 
@@ -376,7 +383,7 @@ const DROPDOWN_VIEWPORT_MARGIN = 8;
  * 같은 이유로 document.body에 portal + position:fixed로 띄운다(조상의
  * overflow:hidden에 잘리지 않도록).
  */
-function Dropdown<T extends string | number>({
+export function Dropdown<T extends string | number>({
   value,
   options,
   labelOf,
@@ -639,7 +646,7 @@ function decimalsOf(step: number): number {
  * 시점에만 min/max로 clamp해 onChange를 호출한다 — 매 keystroke마다 clamp하면 "1"을
  * 지우고 다시 쓰려는 도중에도 값이 튀어 타이핑이 불편해진다.
  */
-function NumberStepper({
+export function NumberStepper({
   value,
   min,
   max,
@@ -718,7 +725,7 @@ function NumberStepper({
  * 어떻게 할지는 호출부마다 다르므로(하이라이트/주석은 id 자체를 저장하고, 텍스트/
  * 도형은 실제 hex를 저장) 콜백으로 위임한다.
  */
-function PresetSwatchRow<T extends string>({
+export function PresetSwatchRow<T extends string>({
   ids,
   labelOf,
   swatchOf,
@@ -788,7 +795,7 @@ function useSyncDefaultFontFamily(currentFamily: string, setFamily: (family: str
   }, [currentFamily, hiddenBuiltinIds, customFonts, setFamily]);
 }
 
-function FontPickerRow({
+export function FontPickerRow({
   currentFamily,
   onPick,
 }: {
@@ -1069,7 +1076,11 @@ function SaveTextDefaultsRow({ preset }: { preset: TextDefaultPreset }) {
   );
 }
 
-function ArrowSection({
+/** canvas/pdf/PdfOverlayPropertiesPanel.tsx가 그대로 재사용한다 — types/pdf.ts 주석대로
+ * PDF 오버레이의 ArrowObject는 메인 캔버스와 100% 같은 타입이고, 이 컴포넌트는 store를
+ * 직접 구독하지 않고 object/update prop만으로 동작하므로(usePresetColorVisibilityStore는
+ * 전역 공용) 수정 없이 안전하게 공유할 수 있다. */
+export function ArrowSection({
   object,
   update,
 }: {
@@ -1127,7 +1138,8 @@ function ArrowSection({
   );
 }
 
-function RectangleSection({
+/** ArrowSection과 같은 이유로 canvas/pdf/PdfOverlayPropertiesPanel.tsx가 재사용한다. */
+export function RectangleSection({
   object,
   update,
 }: {
@@ -1644,7 +1656,7 @@ function FrameDefaultsSection() {
   );
 }
 
-function LineStyleRow({
+export function LineStyleRow({
   value,
   onChange,
 }: {
@@ -1668,7 +1680,7 @@ function LineStyleRow({
   );
 }
 
-function StrokeWidthRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+export function StrokeWidthRow({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   return (
     <Row label="굵기">
       <TileGroup>

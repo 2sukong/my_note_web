@@ -33,6 +33,13 @@
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-md: 13px;
+
+  /* PDF Library 레일(canvas/pdf/PdfLibraryRail.css) 오른쪽에서 PDF Viewer 패널
+     (canvas/pdf/PdfViewerPanel.css)이 시작되는 위치 — 레일 아이콘 폭(34px) +
+     좌우 여백을 더한 고정값. store/pdfViewerStore.ts가 canvas-root를 밀어낼 때도
+     같은 값을 JS 상수로 들고 있다(CSS 변수를 JS에서 매번 읽어오는 것보다 단순함) —
+     이 값을 바꾸면 그쪽 PDF_VIEWER_RAIL_OFFSET 상수도 같이 맞춰야 한다. */
+  --pdf-rail-offset: 58px;
 }
 
 * {

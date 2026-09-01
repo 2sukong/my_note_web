@@ -1,0 +1,123 @@
+/* PDF Library 레일(Phase 4) — 좌측 사이드바 바로 오른쪽, 돋보기(CanvasSearch) 토글
+   바로 아래에 세로로 배치된다. canvas-search와 같은 관례를 그대로 따른다: position
+   fixed + --file-tree-width 변수를 따라가며(사이드바 접힘에 맞춰 이동), Canvas/world
+   좌표와는 완전히 무관하다(v2/v3 확정 — Frame/PDF overlap 회피 로직 자체가 필요 없음). */
+.pdf-library-rail {
+  position: fixed;
+  /* 12px(canvas-search의 top) + 34px(토글 높이) + 8px 여백 */
+  top: 54px;
+  left: calc(var(--file-tree-width, 240px) + 12px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: left 0.15s ease;
+}
+
+.pdf-library-add {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-panel);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.pdf-library-add:hover {
+  color: var(--color-text);
+}
+
+.pdf-library-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-height: calc(100vh - 110px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 1px;
+}
+
+.pdf-library-item {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-library-item:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.pdf-library-item.is-open {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.pdf-library-rename-wrap {
+  width: 34px;
+  flex-shrink: 0;
+}
+
+.pdf-library-rename-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--font-size-xs);
+  color: inherit;
+  text-align: center;
+  padding: 4px 2px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-fill);
+  box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
+}
+
+/* 마우스 오버 시 이름을 보여주는 말풍선(v2 확정: "hover 시 이름을 보여주며"). 스크롤되는
+   .pdf-library-list의 자손이 아니라 이 컴포넌트가 직접 position:fixed로 뷰포트 기준
+   좌표에 그린다 — 그래야 목록이 길어져 스크롤이 생겨도 툴팁이 잘리지 않는다. */
+.pdf-library-tooltip {
+  position: fixed;
+  transform: translateY(-50%);
+  z-index: 10002;
+  max-width: 240px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.pdf-library-error {
+  max-width: 160px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+  text-align: center;
+}

@@ -1,0 +1,164 @@
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import type { CompositionEvent as ReactCompositionEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { TextAnnotation } from '../../objects/text/indentation/types';
+import { annotationVisualsFor } from '../../objects/text/annotationColors';
+import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
+import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
+
+/**
+ * PDF 오버레이 위 주석(Annotation) 하나. v3 §2-9에서 확정한 대로 "Text를 오버레이에
+ * 올리면 주석 기능이 자동으로 딸려온다"는 요구사항을 데이터(TextLine.annotations,
+ * pdfOverlayStore.ts에 그대로 이식된 objectsStore.ts 액션들)는 100% 동일하게 만족하지만,
+ * 화면 표현은 의도적으로 단순화했다: 메인 앱의 AnnotationBubble.tsx(801줄, 손그림
+ * SVG 화살표 + 드래그 재배치 + zoom 보정)를 그대로 옮기는 대신, 이 주석이 달린 줄
+ * 바로 아래에 "인라인 메모 블록"으로 흘러들어가게 그린다 — 화면 고정 패널(줌 변환이
+ * 없는) 안에서 문자 단위 anchor 좌표를 매번 다시 측정해 화살표를 그리는 것보다
+ * 훨씬 단순하고 견고하며, 실시간 브라우저 테스트가 불가능한 환경에서 그 복잡도를
+ * 감수할 가치가 낮다고 판단했다(v1 스코프 축소, 사용자에게 별도 고지). 나중에 필요하면
+ * 화면 표현만 교체할 수 있다 — 데이터 계약은 이미 메인 앱과 동일하다. 같은 이유로
+ * TextAnnotation.offsetX(말풍선 드래그 재배치용 필드)는 이 컴포넌트가 읽지 않는다 —
+ * 항상 줄 아래 고정 위치에 흐른다.
+ *
+ * data-annotation-id/data-object-id/data-owner-line-id 속성은 objects/text/
+ * selectionCapture.ts의 captureAnnotationSelection()이 문서 전역에서 그대로 찾아내는
+ * 규약이라 그대로 유지한다 — 그래야 주석 자기 텍스트 위 형광펜(이번 라운드는 범위
+ * 밖이지만 나중에 켜도 되도록) 등 기존 로직이 수정 없이 작동한다.
+ *
+ * 버그 수정(2026-08, IME 조합 방어): PdfOverlayTextView.tsx와 같은 이유로 composingRef +
+ * onCompositionStart/End를 추가했다 — 이 컴포넌트 자체는 [annotation.text] 값(참조가
+ * 아니라 원시 문자열)에만 반응하는 effect라 원래도 위험이 낮았지만(같은 주석 자신의
+ * 텍스트가 실제로 바뀔 때만 재실행됨), 일관성과 방어적 안전을 위해 텍스트 줄과 동일한
+ * 패턴을 적용했다. spellCheck={false}도 추가(브라우저 기본 맞춤법 빨간 밑줄 제거 —
+ * TextObjectView.tsx의 동일 설정과 같은 이유).
+ */
+export function PdfOverlayAnnotationNote({
+  objectId,
+  lineId,
+  annotation,
+  displayScale,
+}: {
+  objectId: string;
+  lineId: string;
+  annotation: TextAnnotation;
+  displayScale: number;
+}) {
+  const divRef = useRef<HTMLDivElement>(null);
+  const composingRef = useRef(false);
+  const focusAnnotationId = usePdfOverlaySelectionStore((s) => s.focusAnnotationId);
+
+  // DOM↔store 동기화: pdfOverlayStore.ts § pdfOverlayTextView.tsx의 줄 동기화와 같은
+  // 원리 — 현재 DOM 내용이 store와 이미 같으면 손대지 않는다(타이핑 중 커서 위치 보존).
+  // 조합(IME) 중에는 절대 건드리지 않는다(조합 버퍼가 store 값으로 덮어써지는 것 방지).
+  useLayoutEffect(() => {
+    if (composingRef.current) return;
+    const el = divRef.current;
+    if (!el) return;
+    if (el.textContent !== annotation.text) {
+      el.textContent = annotation.text;
+    }
+  }, [annotation.text]);
+
+  // 새로 만든 주석에 자동으로 포커스를 준다(useOverlayTextSelectionTools.ts가
+  // addAnnotation 직후 requestAnnotationFocus를 호출) — 한 번 소비하면 스스로 신호를
+  // 지운다.
+  useEffect(() => {
+    if (focusAnnotationId !== annotation.id) return;
+    const el = divRef.current;
+    if (el) {
+      el.focus();
+      const selection = window.getSelection();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+    usePdfOverlaySelectionStore.getState().clearAnnotationFocus();
+  }, [focusAnnotationId, annotation.id]);
+
+  const visuals = annotationVisualsFor(annotation.color ?? 'red');
+  const fontSize = (annotation.fontSize ?? 11) * displayScale;
+
+  const syncFromDom = (el: HTMLDivElement) => {
+    const nextText = el.textContent ?? '';
+    if (nextText === annotation.text) return;
+    usePdfOverlayStore.getState().updateAnnotationText(objectId, lineId, annotation.id, nextText);
+  };
+
+  const handleInput = (e: FormEvent<HTMLDivElement>) => {
+    const composing = composingRef.current || (e.nativeEvent instanceof InputEvent && e.nativeEvent.isComposing);
+    if (composing) return;
+    syncFromDom(e.currentTarget);
+  };
+
+  const handleCompositionStart = () => {
+    composingRef.current = true;
+  };
+
+  const handleCompositionEnd = (e: ReactCompositionEvent<HTMLDivElement>) => {
+    composingRef.current = false;
+    syncFromDom(e.currentTarget);
+  };
+
+  const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || composingRef.current || e.key === 'Process') return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).blur();
+      return;
+    }
+    if (e.key === 'Backspace' && annotation.text.length === 0) {
+      // 요구사항(빈 주석 정리): 본문 편집 로직과 같은 관례 — 내용이 빈 채로 Backspace를
+      // 누르면 주석 자체를 지운다.
+      e.preventDefault();
+      usePdfOverlayStore.getState().removeAnnotation(objectId, lineId, annotation.id);
+    }
+  };
+
+  return (
+    <div
+      className="pdf-overlay-annotation-note"
+      style={{
+        marginLeft: 10 * displayScale,
+        marginTop: 2 * displayScale,
+        marginBottom: 2 * displayScale,
+        padding: `${2 * displayScale}px ${7 * displayScale}px`,
+        borderRadius: 5 * displayScale,
+        borderLeft: `${Math.max(2, 2 * displayScale)}px solid ${visuals.tick}`,
+        background: visuals.selectedBg,
+      }}
+    >
+      <div
+        ref={divRef}
+        className="pdf-overlay-annotation-note-text"
+        data-annotation-id={annotation.id}
+        data-object-id={objectId}
+        data-owner-line-id={lineId}
+        contentEditable
+        suppressContentEditableWarning
+        spellCheck={false}
+        onInput={handleInput}
+        onKeyDown={handleKeyDown}
+        onCompositionStart={handleCompositionStart}
+        onCompositionEnd={handleCompositionEnd}
+        style={{
+          color: visuals.text,
+          fontSize,
+          fontFamily: annotation.fontFamily,
+          lineHeight: 1.35,
+          outline: 'none',
+          minWidth: 12 * displayScale,
+          wordBreak: 'break-word',
+          // 버그 수정: 이 div도 .canvas-root(user-select:none)의 자손이라 그대로 두면
+          // 형광펜 도구로 주석 자기 텍스트를 드래그해도 선택 자체가 안 생긴다(위
+          // PdfOverlayTextView.tsx의 같은 수정과 동일한 이유) — 주석은 항상
+          // contentEditable이라 별도 "이동 제스처와 충돌" 우려 없이 항상 켜둬도 된다.
+          userSelect: 'text',
+          WebkitUserSelect: 'text',
+        }}
+      />
+    </div>
+  );
+}

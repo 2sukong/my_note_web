@@ -226,3 +226,22 @@ export function UploadIcon({ size = 13 }: IconProps) {
     </svg>
   );
 }
+
+/** PDF Library 레일에서 쓰는 문서(PDF) 아이콘. PageIcon과 같은 "접힌 모서리 문서" 톤을
+ * 따르되, 본문 줄을 하나 더 짧게 넣어(문단이 아니라 "문서 원본"이라는 느낌) 페이지
+ * 아이콘과 실루엣을 살짝 구분했다. */
+export function PdfFileIcon({ size = 17 }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
+      <path
+        d="M5.6 2.6h6l3 3v10.4c0 .7-.6 1.4-1.4 1.4H5.6c-.8 0-1.4-.7-1.4-1.4V4c0-.8.6-1.4 1.4-1.4z"
+        stroke="currentColor"
+        strokeWidth={STROKE_WIDTH}
+        strokeLinejoin="round"
+      />
+      <path d="M11.6 2.6V5c0 .6.4 1 1 1h2.4" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinejoin="round" />
+      <line x1="6.6" y1="10.6" x2="13" y2="10.6" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" />
+      <line x1="6.6" y1="13.2" x2="10.6" y2="13.2" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" />
+    </svg>
+  );
+}

@@ -7,7 +7,11 @@
   top: 0;
   right: 0;
   bottom: 0;
-  left: var(--file-tree-width, 240px);
+  /* Phase 5: PDF Viewer가 열려 있으면 store/pdfViewerStore.ts가 --pdf-viewer-shift를
+     (레일 폭 + Viewer 폭 + 여백)으로 채워준다 — 닫혀 있을 땐 0이라 원래 위치 그대로다.
+     world 좌표엔 전혀 영향 없음(단지 화면에 보이는 canvas-root 박스의 폭이 줄 뿐이고,
+     clientToWorld는 이 요소의 실제 getBoundingClientRect를 읽으므로 자동으로 맞는다). */
+  left: calc(var(--file-tree-width, 240px) + var(--pdf-viewer-shift, 0px));
   transition: left 0.15s ease;
   overflow: hidden;
   /* Excalidraw 스타일: 깨끗한 흰 배경 + 아주 연한 점 그리드(선 그리드보다 시각적으로 가볍다). */
