@@ -44,6 +44,18 @@ export function spawnTextAt(
   frameId: string | null = null,
   width: number = DEFAULT_TEXT_WIDTH,
   height: number = DEFAULT_TEXT_HEIGHT,
+  // 요구사항(2026-09, "드래그 생성 시 한 줄로 줄어들지 않고 드래그한 크기 유지"):
+  // spawnTextFromDraft(사용자가 실제로 드래그해서 크기를 정한 경우)만 true를 넘긴다.
+  // true면 아래 objectsStore.resizeObjectTo가 리사이즈 핸들 드래그에 쓰는 것과 똑같은
+  // TextObject.manualHeight 필드를 생성 시점부터 세운다 — 그러면
+  // TextObjectView.tsx의 자동 높이 effect가 "생성된 뒤 한 번도 수정 안 된 객체는 첫
+  // 측정에 한해 줄어들 수도 있다"는 예외(isGenuinelyFreshObject)에서 이 객체를 제외해서,
+  // 빈 내용 기준 한 줄 높이로 즉시 줄어드는 첫 렌더 축소가 더 이상 일어나지 않는다.
+  // grow-only 규칙(내용이 넘치면 자동으로 커짐)은 manualHeight와 무관하게 항상 그대로
+  // 적용되므로, 드래그한 높이보다 긴 텍스트를 입력하면 여전히 자동으로 자란다 — 오직
+  // "빈 상자가 만들자마자 줄어드는" 동작만 막는다. 기본값 false는 기존 동작(paste 등
+  // 드래그가 아닌 다른 경로) 그대로 유지.
+  manualHeight = false,
 ): string {
   const t = Date.now();
   const id = crypto.randomUUID();
@@ -71,6 +83,7 @@ export function spawnTextAt(
     borderEnabled: textBorderEnabled,
     lineHeight: textLineHeight,
     frameId,
+    manualHeight,
   };
   useObjectsStore.getState().addObject(obj);
   useInteractionStore.getState().select(id);
@@ -98,7 +111,7 @@ export function spawnTextFromDraft(
   const y = Math.min(start.y, end.y);
   const width = Math.max(MIN_TEXT_WIDTH, Math.abs(end.x - start.x));
   const height = Math.max(MIN_TEXT_HEIGHT, Math.abs(end.y - start.y));
-  return spawnTextAt(x, y, frameId, width, height);
+  return spawnTextAt(x, y, frameId, width, height, true);
 }
 
 /**
