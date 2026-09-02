@@ -226,7 +226,9 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
           const siblings = useFileTreeStore.getState().files[page.fileId]?.pageIds ?? [];
           const nextId = siblingIdAfter(siblings, id);
           if (nextId === payload.id) return; // 이미 그 위치에 있음 — no-op
-          void movePage(payload.id, page.fileId, nextId);
+          // nextId가 undefined면 id가 마지막 형제라는 뜻 — "맨 끝으로 옮기기"도 명시적인
+          // 재정렬 요청이므로 null로 넘겨 movePage의 "beforeId 없음 = no-op" 가드를 피한다.
+          void movePage(payload.id, page.fileId, nextId ?? null);
         }
       }}
       onClick={() => {
@@ -349,7 +351,9 @@ function FileNode({ id, depth }: { id: string; depth: number }) {
               : useFileTreeStore.getState().rootFileIds;
             const nextId = siblingIdAfter(siblings, id);
             if (nextId === payload.id) return; // 이미 그 위치에 있음 — no-op
-            void moveFile(payload.id, file.parentId, nextId);
+            // nextId가 undefined면 id가 마지막 형제라는 뜻 — "맨 끝으로 옮기기"도 명시적인
+            // 재정렬 요청이므로 null로 넘겨 moveFile의 "beforeId 없음 = no-op" 가드를 피한다.
+            void moveFile(payload.id, file.parentId, nextId ?? null);
           } else {
             void moveFile(payload.id, id);
           }

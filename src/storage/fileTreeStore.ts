@@ -488,7 +488,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
       // 같은 부모 안에서 beforeId 없이 호출된 경우(순서를 신경 쓰지 않는 기존 호출부)만
       // "이미 거기 있음"으로 보고 무시한다. beforeId가 있으면 같은 부모 안에서 순서만
       // 바꾸는 드래그 재정렬이므로 계속 진행해야 한다.
-      if (file.parentId === newParentId && !beforeId) return;
+      if (file.parentId === newParentId && beforeId === undefined) return;
 
       await detachFromParent(id, file.parentId, 'file');
       const updated = { ...get().files[id], parentId: newParentId, updatedAt: Date.now() };
@@ -675,7 +675,7 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => {
       if (id === beforeId) return; // 자기 자신 바로 앞에 끼워넣기 = no-op
       if (!state.files[newFileId]) return;
       // moveFile과 동일한 이유로, 같은 File 안에서 beforeId 없이 호출된 경우만 무시한다.
-      if (page.fileId === newFileId && !beforeId) return;
+      if (page.fileId === newFileId && beforeId === undefined) return;
 
       await detachFromParent(id, page.fileId, 'page');
       const updated = { ...get().pages[id], fileId: newFileId, updatedAt: Date.now() };
