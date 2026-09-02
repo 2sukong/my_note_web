@@ -3,6 +3,7 @@ import { usePdfOverlayShapeDraftStore } from '../../store/pdfOverlayShapeDraftSt
 import { computeDiagonal } from '../../objects/shapes/shapeGeometry';
 import { strokeColorValueFor } from '../../objects/shapes/strokeColors';
 import { ShapeSvgContent } from '../../objects/shapes/ShapeSvgContent';
+import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION } from '../../objects/pdf/pdfRaster';
 
 /**
  * canvas/DrawPreview.tsx의 화살표/사각형 미리보기 분기와 같은 원리 — 아직 확정되지
@@ -43,7 +44,9 @@ export function PdfOverlayShapeDraftLayer({ pageWidth, pageHeight }: { pageWidth
           width={box.width}
           height={box.height}
           strokeColor={strokeColorValueFor(strokeColorId)}
-          strokeWidth={strokeWidth}
+          // PdfOverlayShapeView.tsx와 같은 이유(viewBox 자동 스케일 보정) —
+          // 미리보기(draft)도 확정된 도형과 항상 같은 굵기로 보이게 여기도 곱한다.
+          strokeWidth={strokeWidth * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION}
           fill="none"
           flipY={flipY}
           reverseArrow={reverseDirection}

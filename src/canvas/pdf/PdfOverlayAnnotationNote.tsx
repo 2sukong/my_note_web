@@ -4,6 +4,7 @@ import type { TextAnnotation } from '../../objects/text/indentation/types';
 import { annotationVisualsFor } from '../../objects/text/annotationColors';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
+import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION as SIZE_CAL } from '../../objects/pdf/pdfRaster';
 
 /**
  * PDF 오버레이 위 주석(Annotation) 하나. v3 §2-9에서 확정한 대로 "Text를 오버레이에
@@ -79,7 +80,11 @@ export function PdfOverlayAnnotationNote({
   }, [focusAnnotationId, annotation.id]);
 
   const visuals = annotationVisualsFor(annotation.color ?? 'red');
-  const fontSize = (annotation.fontSize ?? 11) * displayScale;
+  // 보정 계수(SIZE_CAL): pdfRaster.ts의 PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION 참고
+  // (2026-09, 메인 캔버스 AnnotationBubble.tsx와 비슷한 크기로 보이게 하는 보정).
+  // 폰트뿐 아니라 그 크기에 비례하는 여백/모서리 값도 전부 같이 곱해야 비율이 안
+  // 무너진다.
+  const fontSize = (annotation.fontSize ?? 11) * displayScale * SIZE_CAL;
 
   const syncFromDom = (el: HTMLDivElement) => {
     const nextText = el.textContent ?? '';
@@ -121,12 +126,12 @@ export function PdfOverlayAnnotationNote({
     <div
       className="pdf-overlay-annotation-note"
       style={{
-        marginLeft: 10 * displayScale,
-        marginTop: 2 * displayScale,
-        marginBottom: 2 * displayScale,
-        padding: `${2 * displayScale}px ${7 * displayScale}px`,
-        borderRadius: 5 * displayScale,
-        borderLeft: `${Math.max(2, 2 * displayScale)}px solid ${visuals.tick}`,
+        marginLeft: 10 * displayScale * SIZE_CAL,
+        marginTop: 2 * displayScale * SIZE_CAL,
+        marginBottom: 2 * displayScale * SIZE_CAL,
+        padding: `${2 * displayScale * SIZE_CAL}px ${7 * displayScale * SIZE_CAL}px`,
+        borderRadius: 5 * displayScale * SIZE_CAL,
+        borderLeft: `${Math.max(2, 2 * displayScale * SIZE_CAL)}px solid ${visuals.tick}`,
         background: visuals.selectedBg,
       }}
     >
@@ -149,7 +154,7 @@ export function PdfOverlayAnnotationNote({
           fontFamily: annotation.fontFamily,
           lineHeight: 1.35,
           outline: 'none',
-          minWidth: 12 * displayScale,
+          minWidth: 12 * displayScale * SIZE_CAL,
           wordBreak: 'break-word',
           // 버그 수정: 이 div도 .canvas-root(user-select:none)의 자손이라 그대로 두면
           // 형광펜 도구로 주석 자기 텍스트를 드래그해도 선택 자체가 안 생긴다(위

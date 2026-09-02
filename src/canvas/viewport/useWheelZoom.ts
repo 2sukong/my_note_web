@@ -24,8 +24,15 @@ export function useWheelZoom(containerRef: RefObject<HTMLDivElement | null>) {
       // 스크롤이 전부 "캔버스 확대/축소"로 가로채져서 전혀 스크롤되지 않는 버그가
       // 있었다. UI chrome(툴바/HUD/속성 패널) 위에서는 캔버스 줌에 전혀 관여하지
       // 않고 그대로 흘려보내 브라우저 기본 스크롤/드래그가 정상 동작하게 한다.
+      //
+      // 추가(2026-09): 같은 이유로 `.pdf-viewer-panel`(PDF Reference Viewer 전체 —
+      // 필름스트립/스테이지 포함)도 제외했다. 원래 이 패널도 canvas-root의 DOM
+      // 자식이라 이 리스너가 그대로 가로챘는데, 그러면 필름스트립을 마우스 휠로
+      // 스크롤하려 해도 캔버스가 확대/축소돼버렸다(별개로 존재하던 버그). PDF 페이지
+      // 자체의 Ctrl+휠 확대는 이제 usePdfViewerZoom.ts가 `.pdf-viewer-stage`에서
+      // 전담한다 — 여기서 빠지지 않으면 두 줌이 동시에 반응해 서로 간섭한다.
       const target = e.target as HTMLElement | null;
-      if (target?.closest('.canvas-toolbar, .canvas-hud, .properties-panel')) return;
+      if (target?.closest('.canvas-toolbar, .canvas-hud, .properties-panel, .pdf-viewer-panel')) return;
 
       e.preventDefault();
 

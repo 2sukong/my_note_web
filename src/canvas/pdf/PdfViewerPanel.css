@@ -94,8 +94,42 @@
   align-items: center;
   justify-content: center;
   background: var(--color-fill);
-  overflow: hidden;
+  /* 2026-09: Ctrl+스크롤로 페이지를 확대(usePdfViewerZoom.ts, .pdf-viewer-page의
+     transform:scale)할 수 있게 되면서 hidden에서 auto로 바꿨다 — 확대된 뒤 일반 휠로
+     자연스럽게 스크롤(패닝)하기 위함. 확대 안 된 상태(scale(1))는 페이지가 정확히 이
+     영역에 맞춰지므로 스크롤바가 생기지 않아 기존 모습과 차이가 없다. */
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 12px;
+  /* 요구사항(2026-09, 확대 중 페이지 번호 표시): 아래 .pdf-viewer-page-badge가 이
+     요소를 기준으로 position:absolute하기 위해 필요하다 — 이 요소 자신이 스크롤
+     컨테이너(overflow:auto)이자 동시에 positioned ancestor이면, absolute 자식은
+     "패딩 박스" 기준으로 배치되고 이 요소 자신의 스크롤에는 영향받지 않는다(스크롤되는
+     건 내부 콘텐츠고, 그 콘텐츠에 얹힌 absolute 요소가 이 요소 자체를 containing
+     block으로 삼을 때는 스크롤에 딸려가지 않음) — 그래서 확대 후 패닝(스크롤)해도
+     배지가 항상 stage 상단에 고정되어 보인다. */
+  position: relative;
+}
+
+/* 요구사항(2026-09, 확대 중 페이지 번호 표시): pageZoom>1일 때만 렌더링되는 배지
+   (PdfViewerPanel.tsx). 확대/패닝 중에는 필름스트립이 화면 밖으로 벗어나 있을 수 있어
+   "지금 몇 페이지를 보고 있는지" 놓치기 쉬운데, 이 배지가 항상 stage 위쪽 중앙에
+   떠 있어 그걸 보완한다. pointer-events:none이라 클릭/드래그 등 아래 콘텐츠와의
+   인터랙션을 전혀 가리지 않는다. */
+.pdf-viewer-page-badge {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  pointer-events: none;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 /* Phase 6: 페이지 래스터 + 오버레이(형광펜 등)를 함께 담는 래퍼. width/height를

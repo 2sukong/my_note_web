@@ -3,6 +3,7 @@ import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlayHighlightDraftStore } from '../../store/pdfOverlayHighlightDraftStore';
 import { resolveHighlightStrokeWidth } from '../../objects/image/imageHighlightGeometry';
 import { highlightBackgroundFor } from '../../objects/text/highlightColors';
+import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION } from '../../objects/pdf/pdfRaster';
 
 /**
  * PDF 페이지 배경 위 "형광펜" 확정 선들 + 지금 그리는 중인 draft를 그린다.
@@ -38,7 +39,10 @@ export function PdfOverlayHighlightLayer({ pageWidth, pageHeight }: { pageWidth:
           x2={h.x2 * pageWidth}
           y2={h.y2 * pageHeight}
           stroke={highlightBackgroundFor(h.color)}
-          strokeWidth={resolveHighlightStrokeWidth(h.thicknessRatio, pageWidth, pageHeight)}
+          // 요구사항(굵기 페이지-PDF 동등화, 2026-09-01): PdfOverlayShapeView.tsx와
+          // 같은 이유 — 이 <svg>도 viewBox="0 0 pageWidth pageHeight"(참조 px)라서
+          // strokeWidth가 displayScale만큼 자동으로 줄어든다, CALIBRATION을 곱해 상쇄.
+          strokeWidth={resolveHighlightStrokeWidth(h.thicknessRatio, pageWidth, pageHeight) * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION}
           strokeLinecap="round"
         />
       ))}
@@ -49,9 +53,15 @@ export function PdfOverlayHighlightLayer({ pageWidth, pageHeight }: { pageWidth:
           x2={draft.current.x}
           y2={draft.current.y}
           stroke={draftStroke}
-          strokeWidth={highlightThickness}
+          // 확정된 선(위)과 같은 이유로 CALIBRATION을 곱한다 — 그려지는 중 미리보기도
+          // 커밋 후와 항상 같은 굵기로 보여야 한다.
+          strokeWidth={highlightThickness * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION}
           strokeLinecap="round"
-          strokeDasharray={eraserActive ? `${highlightThickness * 0.6} ${highlightThickness * 0.5}` : undefined}
+          strokeDasharray={
+            eraserActive
+              ? `${highlightThickness * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION * 0.6} ${highlightThickness * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION * 0.5}`
+              : undefined
+          }
         />
       )}
     </svg>

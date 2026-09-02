@@ -21,6 +21,7 @@ import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { PdfOverlayAnnotationNote } from './PdfOverlayAnnotationNote';
 import { PdfOverlayResizeHandles } from './PdfOverlayResizeHandles';
+import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION } from '../../objects/pdf/pdfRaster';
 
 // objects/text/TextObjectView.tsx의 같은 이름 상수와 같은 값(32) — 리사이즈 핸들로
 // 세로를 아무리 줄여도 이 아래로는 못 내려간다.
@@ -78,6 +79,10 @@ const MIN_TEXT_HEIGHT = 32;
  * 자바스크립트 재계산 없이 저절로 따라간다. 다만 글자 크기(baseFontSize)는 퍼센트로
  * 표현할 수 없으므로 displayScale(부모 PdfOverlayObjectsLayer가 실측해서 내려주는,
  * "지금 화면에 실제로 그려지는 px 대 페이지 기준 px" 비율)을 곱해 실제 CSS px로 바꾼다.
+ 추가로
+ * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION(pdfRaster.ts)을 한 번 더 곱한다 — 그 상수
+ * 자체 주석 참고, 기본 Viewer 폭에서 메인 캔버스와 비슷한 글자 크기로 보이게 하는
+ * 보정(2026-09).
  */
 export function PdfOverlayTextView({
   object,
@@ -499,7 +504,7 @@ export function PdfOverlayTextView({
                   onBlur={handleLineBlur}
                   style={{
                     position: 'relative',
-                    fontSize: object.baseFontSize * displayScale,
+                    fontSize: object.baseFontSize * displayScale * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION,
                     outline: 'none',
                     whiteSpace: 'pre-wrap',
                     overflowWrap: 'break-word',

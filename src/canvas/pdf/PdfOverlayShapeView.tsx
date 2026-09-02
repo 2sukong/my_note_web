@@ -6,6 +6,7 @@ import { useToolStore } from '../../store/toolStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { PdfOverlayResizeHandles } from './PdfOverlayResizeHandles';
+import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION } from '../../objects/pdf/pdfRaster';
 
 /**
  * PDF 페이지 오버레이 위 화살표/사각형 하나(Phase 6, 2026-08). objects/shapes/
@@ -114,7 +115,17 @@ export function PdfOverlayShapeView({
           width={object.width}
           height={object.height}
           strokeColor={object.strokeColor}
-          strokeWidth={object.strokeWidth}
+          // 요구사항(굵기 페이지-PDF 동등화, 2026-09-01): 이 <svg>는
+          // viewBox="0 0 object.width object.height"(참조 px)를 실제 화면 표시
+          // 크기(displayScale배)로 자동 스케일하므로, strokeWidth 같은 속성값도
+          // 그 스케일을 그대로 따라간다 — 메인 캔버스(viewBox 없음, 1:1)와 같은
+          // "굵기" 숫자를 넣어도 여기선 displayScale(기본 ~0.33)배만큼 얇게
+          // 보였다. PdfOverlayTextView.tsx의 글자크기 보정과 동일한 계수를 곱해
+          // 상쇄한다(브라우저가 다시 displayScale을 곱해 최종 픽셀 굵기가
+          // strokeWidth * CALIBRATION이 되게 하는 것 — CALIBRATION만 곱하고
+          // displayScale로 나누지 않는 이유: viewBox 자동 스케일이 이미 그 나눗셈
+          // 역할을 대신 해준다).
+          strokeWidth={object.strokeWidth * PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION}
           fill={object.type === 'rectangle' && object.fillEnabled ? object.strokeColor : 'none'}
           fillOpacity={object.type === 'rectangle' ? object.fillOpacity : undefined}
           rounded={object.type === 'rectangle' ? object.rounded : undefined}

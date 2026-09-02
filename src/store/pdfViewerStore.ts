@@ -36,6 +36,22 @@ function clampWidth(width: number): number {
   return Math.min(pdfViewerMaxWidth(), Math.max(PDF_VIEWER_MIN_WIDTH, width));
 }
 
+/**
+ * 요구사항(2026-09, "PDF 위에서 Ctrl+스크롤로 확대"): Viewer 패널 폭(width)과는 별개로,
+ * 페이지 자체를 확대해서 보는 배율. 1이 기본(패널에 맞춰 꽉 차는 크기, 기존 동작과
+ * 100% 동일)이고, 그보다 작게는 못 내려간다 — 이미 "패널에 맞춰 최대로 채운" 상태가
+ * 1이라 그 밑으로 줄이면 빈 여백만 늘어나 쓸모가 없다고 판단했다. usePdfViewerZoom.ts가
+ * Ctrl+휠로 이 값을 바꾸고, PdfViewerPanel.tsx가 `.pdf-viewer-page`에
+ * `transform: scale(pageZoom)`으로 반영한다 — getBoundingClientRect()로 실측하는
+ * displayScale(PdfOverlayObjectsLayer.tsx)이 transform 이후 크기를 그대로 읽으므로,
+ * 확대할수록 그 안의 글자/오버레이 객체도 자연스럽게 같이 커진다(추가 보정 코드 불필요).
+ */
+export const PDF_PAGE_ZOOM_MIN = 1;
+export const PDF_PAGE_ZOOM_MAX = 4;
+function clampPageZoom(zoom: number): number {
+  return Math.min(PDF_PAGE_ZOOM_MAX, Math.max(PDF_PAGE_ZOOM_MIN, zoom));
+}
+
 /** index.css의 --pdf-rail-offset(58px)과 같은 값 — PdfLibraryRail 오른쪽에서 Viewer
  * 패널이 시작되기까지의 고정 여백. CSS 변수를 JS에서 매번 getComputedStyle로 읽어오는
  * 대신 상수로 들고 있다(단순함 우선) — index.css 쪽 값을 바꾸면 이 값도 같이 맞출 것. */
@@ -57,6 +73,9 @@ interface PdfViewerState {
   openPdfId: string | null;
   currentPageIndex: number;
   width: number;
+  /** 페이지 확대 배율(위 PDF_PAGE_ZOOM_MIN/MAX 설명 참고). PDF를 열거나 페이지를
+   * 넘길 때마다 1로 되돌린다(아래 openViewer/closeViewer/setCurrentPageIndex). */
+  pageZoom: number;
 
   /** Library에서 PDF를 클릭했을 때 호출. pageIndex 생략 시 0페이지(첫 페이지)부터. */
   openViewer: (pdfId: string, pageIndex?: number) => void;
@@ -66,6 +85,8 @@ interface PdfViewerState {
   setWidth: (width: number) => void;
   /** 리사이즈가 끝났을 때(pointerup) 한 번만 호출해 localStorage에 반영한다. */
   commitWidth: () => void;
+  /** Ctrl+휠(usePdfViewerZoom.ts)마다 호출. */
+  setPageZoom: (zoom: number) => void;
 }
 
 const initialWidth = readInitialWidth();
@@ -74,16 +95,18 @@ export const usePdfViewerStore = create<PdfViewerState>((set, get) => ({
   openPdfId: null,
   currentPageIndex: 0,
   width: initialWidth,
+  pageZoom: 1,
 
   openViewer: (pdfId, pageIndex = 0) => {
-    set({ openPdfId: pdfId, currentPageIndex: pageIndex });
+    set({ openPdfId: pdfId, currentPageIndex: pageIndex, pageZoom: 1 });
     applyShiftCssVar(true, get().width);
   },
   closeViewer: () => {
-    set({ openPdfId: null });
+    set({ openPdfId: null, pageZoom: 1 });
     applyShiftCssVar(false, get().width);
   },
-  setCurrentPageIndex: (pageIndex) => set({ currentPageIndex: pageIndex }),
+  setCurrentPageIndex: (pageIndex) => set({ currentPageIndex: pageIndex, pageZoom: 1 }),
+  setPageZoom: (zoom) => set({ pageZoom: clampPageZoom(zoom) }),
   setWidth: (width) => {
     const clamped = clampWidth(width);
     set({ width: clamped });

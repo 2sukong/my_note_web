@@ -14,6 +14,28 @@ import './pdfjsSetup';
 export const PDF_PAGE_REFERENCE_SCALE = 2;
 
 /**
+ * 요구사항(2026-09, "텍스트/주석 크기가 기존 페이지와 비슷하게"): PDF 오버레이의
+ * 절대 크기 값(글자 크기 baseFontSize, 주석 여백/글자 크기 등 — 위치/폭/높이처럼
+ * %로 표현되지 않고 PdfOverlayTextView.tsx/PdfOverlayAnnotationNote.tsx가
+ * `값 * displayScale`로 CSS px로 바꾸는 값들)에 곱하는 보정 계수.
+ *
+ * displayScale(화면에 실제로 그려지는 px / 페이지 로컬 px)만 곱하면, 기본 Viewer 폭
+ * (PDF_VIEWER_DEFAULT_WIDTH=420px, pdfViewerStore.ts)이 PDF_PAGE_REFERENCE_SCALE(2)
+ * 배율로 래스터된 일반적인 A4/Letter 페이지 폭(~1190~1224px)보다 훨씬 좁아서,
+ * displayScale이 기본값 기준 대략 0.33~0.35 정도로 작다 — 그 결과 메인 캔버스와
+ * "같은 숫자"를 글자 크기로 넣어도 실제 화면에는 3배가량 작게 보였다(사용자 확인,
+ * 2026-09: PDF 쪽 48pt가 메인 캔버스 16px 정도로 보임). 이 계수(위 비율의 역수를
+ * 반올림한 값)를 displayScale에 곱해 보정하면, 기본 Viewer 폭 기준으로 같은 숫자가
+ * 메인 캔버스와 비슷한 크기로 보인다.
+ *
+ * 페이지마다 실제 원본 크기가 달라 완벽히 정확한 값은 아니다(정확히 맞추려면 그
+ * PDF의 실제 raster 폭까지 감안해야 하는데, 그러면 Viewer를 넓힐수록/PDF 페이지를
+ * 확대할수록 글자도 커지는 지금의 "화면에 보이는 그대로" 동작 자체가 사라진다 — 그건
+ * 의도된 동작이라 유지한다). 기본값 기준으로 맞춰두면 충분히 자연스럽다.
+ */
+export const PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION = 3;
+
+/**
  * 원본 PDF 바이트에서 문서를 연다. `PdfLibraryRecord.sourceBytes`(항상 영구 보존, 절대
  * 지우지 않음)를 넘겨서 호출한다 — 페이지 래스터 캐시가 없거나 사라졌어도 이 함수로
  * 언제든 다시 열어 필요한 페이지를 재렌더링할 수 있다(v3 §1-4의 "래스터는 파생 데이터"

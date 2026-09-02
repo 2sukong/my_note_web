@@ -4,9 +4,8 @@ import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 
 // 페이지 로컬 px(PDF_PAGE_REFERENCE_SCALE 기준) 기준. canvas/actions.ts의 같은 이름
-// 상수와 같은 값 — useDrawOverlayTextTool.ts의 DEFAULT_TEXT_WIDTH/HEIGHT와 같은 이유로,
-// 페이지 로컬 px 스케일이 대략 메인 캔버스의 zoom=1과 비슷해서 그대로 재사용해도
-// 자연스러운 초기 크기가 나온다.
+// 상수(MAX_IMAGE_DIM)와 같은 값 — 페이지 로컬 px 스케일이 대략 메인 캔버스의 zoom=1과
+// 비슷해서 그대로 재사용해도 자연스러운 초기 크기가 나온다.
 const MAX_IMAGE_DIM = 320;
 
 /**

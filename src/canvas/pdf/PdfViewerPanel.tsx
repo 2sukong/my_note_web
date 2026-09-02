@@ -13,6 +13,8 @@ import { useOverlayTextSelectionTools } from './useOverlayTextSelectionTools';
 import { PdfOverlayObjectsLayer } from './PdfOverlayObjectsLayer';
 import { useDrawOverlayShapeTool } from './useDrawOverlayShapeTool';
 import { PdfOverlayShapeDraftLayer } from './PdfOverlayShapeDraftLayer';
+import { PdfOverlayTextDraftLayer } from './PdfOverlayTextDraftLayer';
+import { usePdfViewerZoom } from './usePdfViewerZoom';
 import { useOverlayImagePlacementTool } from './useOverlayImagePlacementTool';
 import { usePdfOverlayImagePickerStore } from '../../store/pdfOverlayImagePickerStore';
 import { spawnOverlayImageAt } from './spawnOverlayImage';
@@ -98,6 +100,7 @@ export function PdfViewerPanel() {
   const openPdfId = usePdfViewerStore((s) => s.openPdfId);
   const currentPageIndex = usePdfViewerStore((s) => s.currentPageIndex);
   const width = usePdfViewerStore((s) => s.width);
+  const pageZoom = usePdfViewerStore((s) => s.pageZoom);
   const setCurrentPageIndex = usePdfViewerStore((s) => s.setCurrentPageIndex);
   const setWidth = usePdfViewerStore((s) => s.setWidth);
   const commitWidth = usePdfViewerStore((s) => s.commitWidth);
@@ -115,6 +118,7 @@ export function PdfViewerPanel() {
 
   const filmstripRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
@@ -232,6 +236,7 @@ export function PdfViewerPanel() {
   useOverlayTextSelectionTools(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   useDrawOverlayShapeTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   useOverlayImagePlacementTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
+  usePdfViewerZoom(stageRef, stagePage?.width ?? 0);
 
   // Phase 6(이미지, 2026-08): Canvas.tsx의 fileInputRef 효과와 완전히 같은 패턴 —
   // React StrictMode 이중 마운트에서도 "첫 실행"을 기준값(baseline)과의 비교로 판정해서
@@ -364,7 +369,7 @@ export function PdfViewerPanel() {
         onChange={handleOverlayImageFileInputChange}
       />
 
-      <div className="pdf-viewer-stage">
+      <div className="pdf-viewer-stage" ref={stageRef}>
         {stagePage && (
           <div
             className="pdf-viewer-page"
@@ -381,12 +386,31 @@ export function PdfViewerPanel() {
               // 비율이 유지된다.
               width: stagePage.width,
               aspectRatio: `${stagePage.width} / ${stagePage.height}`,
+              // 요구사항(2026-09, Ctrl+스크롤 확대): pageZoom(usePdfViewerZoom.ts가
+              // Ctrl+휠로 갱신)을 transform:scale로 적용한다. 레이아웃 폭/높이(위 width/
+              // aspectRatio)는 그대로 두고 시각적으로만 확대하므로, getBoundingClientRect()
+              // 로 실측하는 displayScale(PdfOverlayObjectsLayer.tsx)이 확대된 실제 크기를
+              // 그대로 읽어 오버레이 글자/객체도 자연스럽게 같이 커진다. 1일 땐 scale(1)이라
+              // 기존 동작과 완전히 동일하다.
+              transform: `scale(${pageZoom})`,
             }}
           >
             <img src={stagePage.url} alt={`${panelRecord.name} ${currentPageIndex + 1}페이지`} draggable={false} />
             <PdfOverlayHighlightLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayObjectsLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayShapeDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
+            <PdfOverlayTextDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
+          </div>
+        )}
+        {/* 요구사항(2026-09, 확대 중 페이지 번호 표시): pageZoom>1(실제로 확대된
+            상태)일 때만 보여준다 — 기본 배율(1)에서는 필름스트립의 강조된 썸네일로도
+            충분히 알 수 있어 배지가 그저 중복/방해가 된다. .pdf-viewer-page 안이 아니라
+            .pdf-viewer-stage의 직계 자식으로 둬서(CSS 참고) transform:scale(pageZoom)의
+            영향을 받지 않고(배지 자체가 확대되지 않고) 스크롤/패닝 중에도 stage 상단에
+            고정되어 보인다. */}
+        {stagePage && pageZoom > 1 && (
+          <div className="pdf-viewer-page-badge">
+            {currentPageIndex + 1} / {panelRecord.pageCount}
           </div>
         )}
         {!stagePage && stageError && (

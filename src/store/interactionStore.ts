@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { usePdfOverlaySelectionStore } from './pdfOverlaySelectionStore';
 
 export type InteractionMode = 'idle' | 'select' | 'drag' | 'resize' | 'pan' | 'text-edit';
 
@@ -36,6 +37,26 @@ interface InteractionState {
   selectFine: (selection: FineSelection) => void;
 }
 
+/**
+ * 요구사항(2026-09, "PDF 객체가 선택된 상태에서 PDF 밖의 다른 객체를 클릭하면 PDF 쪽
+ * 선택도 풀리게"): pdfOverlaySelectionStore(PDF 오버레이 텍스트/도형/이미지 선택)는
+ * 원래 이 store와 완전히 분리된 병렬 구현이다(그 파일 설명 참고) — 그래서 메인 캔버스
+ * 쪽 선택이 바뀌어도 스스로 알 방법이 없다. 방치하면 Canvas.tsx가
+ * pdfOverlaySelectedId 유무만으로 속성 패널을 고르기 때문에(PdfOverlayPropertiesPanel
+ * vs PropertiesPanel), 메인 캔버스에서 새로 객체를 선택하거나 빈 배경을 클릭해도
+ * 여전히 PDF 쪽 속성 패널이 남아있는 버그가 생긴다. 아래 5개 mutator(메인 캔버스의
+ * 선택 상태를 바꾸는 진입점 전부 — select/setSelection/toggleSelect/deselect/
+ * selectFine, useMarqueeSelect.ts/objects/text/TextObjectView.tsx/canvas/actions.ts가
+ * 전부 이 store를 통해서만 선택을 바꾼다)가 실제로 호출될 때마다 PDF 쪽 선택이 남아
+ * 있으면 함께 지운다. PDF 오버레이 자신의 클릭 핸들러들은 이 store를 전혀 건드리지
+ * 않으므로(usePdfOverlaySelectionStore만 직접 쓴다), PDF 안에서의 선택/편집 중에는
+ * 이 정리가 절대 끼어들지 않는다.
+ */
+function clearPdfOverlaySelectionIfAny() {
+  const pdfSelection = usePdfOverlaySelectionStore.getState();
+  if (pdfSelection.selectedId !== null) pdfSelection.clear();
+}
+
 export const useInteractionStore = create<InteractionState>((set, get) => ({
   mode: 'idle',
   selectedIds: [],
@@ -43,17 +64,30 @@ export const useInteractionStore = create<InteractionState>((set, get) => ({
 
   setMode: (mode) => set({ mode }),
 
-  select: (id) => set({ selectedIds: id ? [id] : [], fineSelection: null, mode: id ? 'select' : 'idle' }),
+  select: (id) => {
+    clearPdfOverlaySelectionIfAny();
+    set({ selectedIds: id ? [id] : [], fineSelection: null, mode: id ? 'select' : 'idle' });
+  },
 
-  setSelection: (ids) => set({ selectedIds: ids, fineSelection: null, mode: ids.length > 0 ? 'select' : 'idle' }),
+  setSelection: (ids) => {
+    clearPdfOverlaySelectionIfAny();
+    set({ selectedIds: ids, fineSelection: null, mode: ids.length > 0 ? 'select' : 'idle' });
+  },
 
   toggleSelect: (id) => {
+    clearPdfOverlaySelectionIfAny();
     const current = get().selectedIds;
     const next = current.includes(id) ? current.filter((existing) => existing !== id) : [...current, id];
     set({ selectedIds: next, fineSelection: null, mode: next.length > 0 ? 'select' : 'idle' });
   },
 
-  deselect: () => set({ selectedIds: [], fineSelection: null, mode: 'idle' }),
+  deselect: () => {
+    clearPdfOverlaySelectionIfAny();
+    set({ selectedIds: [], fineSelection: null, mode: 'idle' });
+  },
 
-  selectFine: (selection) => set({ selectedIds: [], fineSelection: selection, mode: 'select' }),
+  selectFine: (selection) => {
+    clearPdfOverlaySelectionIfAny();
+    set({ selectedIds: [], fineSelection: selection, mode: 'select' });
+  },
 }));
