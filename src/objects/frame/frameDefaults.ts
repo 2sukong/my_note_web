@@ -28,7 +28,7 @@ export const FRAME_SIZE_PRESETS: FrameSizePreset[] = [
   { id: 'square', label: '정사각형', width: DEFAULT_FRAME_WIDTH, height: DEFAULT_FRAME_WIDTH },
   {
     id: 'widescreen',
-    label: '와이드스크린',
+    label: '와이드',
     width: DEFAULT_FRAME_HEIGHT,
     height: Math.round(DEFAULT_FRAME_HEIGHT / WIDESCREEN_RATIO),
   },

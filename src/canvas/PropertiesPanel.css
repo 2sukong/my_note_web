@@ -58,8 +58,9 @@
 }
 
 .properties-row-label {
-  /* 고정폭 대신 최소폭만 두고 내용 길이에 맞춰 늘어나게 한다 — "텍스트 색상"/
-     "테두리 색상"처럼 4자를 넘는 라벨도 줄바꿈 없이 한 줄로 표시된다. */
+  /* 고정폭 대신 최소폭만 두고 내용 길이에 맞춰 늘어나게 한다 — 4자를 넘는 라벨도
+     줄바꿈 없이 한 줄로 표시된다("색상"처럼 2자 라벨은 이 44px 최소폭으로 클램프됨 —
+     사이드바 "색상" 줄의 즐겨찾기 최대 개수 계산이 이 44px을 기준으로 한다). */
   flex: 0 0 auto;
   min-width: 44px;
   white-space: nowrap;
@@ -73,6 +74,12 @@
   justify-content: flex-end;
   gap: 5px;
   flex-wrap: wrap;
+  /* 2026-09-07 피드백(6차): 컨트롤 영역이 라벨 오른쪽에 남는 폭 전체를 항상 차지하도록
+     한다 — 아이콘 한두 개짜리 행은 이미 오른쪽 끝에 붙어 있어 시각적으로 그대로지만,
+     "그룹 자체의 폭"을 패널 폭 기준으로 채워야 하는 행(.properties-save-preset-row
+     등)이 여기 걸어야 할 flex 앵커가 된다. */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 /* 타일 버튼: 화살촉/모서리/선 스타일/끝처리/채우기/굵기/굵게 전부 공유. 테두리
@@ -80,8 +87,10 @@
    아주 옅은 그림자로 "떠 보이는" 느낌만 준다(진한 테두리로 박스처럼 보이지
    않도록). */
 .properties-tile {
-  width: 30px;
-  height: 30px;
+  /* 2026-09-07 피드백(3차): 24px는 너무 작아 26px로 재조정 — 회색 카드/색상 원/
+     스테퍼 버튼 전부 이 값을 기준으로 다시 통일. */
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -101,7 +110,7 @@
 .properties-tile.is-active {
   background: var(--color-surface);
   color: var(--color-text);
-  box-shadow: inset 0 0 0 1px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong), var(--shadow-control-active);
 }
 
 /* 요구사항: 한 속성에 선택 가능한 옵션이 여럿(화살촉/선 스타일/모서리/채우기/굵기/
@@ -129,31 +138,14 @@
 
 .properties-tile-group .properties-tile.is-active {
   background: var(--color-surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-control-active);
 }
 
-/* 프레임 크기 프리셋처럼 폭이 가변적인 텍스트 버튼. properties-tile과 같은 톤이지만
-   30px 정사각형이 아니라 라벨 길이만큼 늘어난다. */
-.properties-preset-btn {
-  font-size: var(--font-size-xs);
-  padding: 6px 9px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: var(--color-fill);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.properties-preset-btn:hover {
-  background: var(--color-fill-hover);
-  color: var(--color-text);
-}
-
-.properties-preset-btn.is-active {
-  background: var(--color-surface);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1px var(--color-border-strong), 0 1px 2px rgba(0, 0, 0, 0.06);
-}
+/* 요구사항(회색 카드 26px 통일, 2026-09-08): 프레임 크기 프리셋(A4/정사각형/와이드)이
+   전용 텍스트 버튼(.properties-preset-btn)이었으나, "정사각형"(4음절)은 26px 폭에
+   텍스트로 도저히 안 들어가서 다른 옵션 타일과 동일한 TileGroup + 아이콘 방식으로
+   바꿨다(PropertiesPanel.tsx의 FrameSizePresetRow, objects/style/StyleIcons.tsx의
+   FrameSizeIcon 참고) — 그래서 이 전용 클래스는 삭제했다. */
 
 .properties-select {
   flex: 1;
@@ -258,9 +250,10 @@
   overflow: hidden;
 }
 
+/* 2026-09-07 피드백(3차): 다른 아이콘형 회색 카드(.properties-tile, 26px)와 높이를 맞춤. */
 .properties-stepper-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -359,18 +352,49 @@
   text-align: right;
 }
 
-/* 요구사항(텍스트 기본값 저장): '제목값으로 저장'/'본문값으로 저장' 버튼 두 개를
-   나란히 두는 행. properties-color-add-recent-btn과 같은 점선 테두리 톤을 쓰되,
-   두 버튼이 패널 폭을 나눠 갖도록 flex:1을 준다. */
+/* 요구사항(스타일 줄 한 줄 배치, 2026-09-08): '스타일' 라벨 + 이름 입력 + 저장
+   버튼이 한 줄에 오도록 <Row> 안에 들어가는 전용 컨테이너 — 부모
+   .properties-row-control이 flex:1로 넓어진 폭을 이 행도 그대로 물려받아야
+   입력창(.properties-style-name-input, flex:1)이 실제로 늘어날 공간이 생긴다. */
 .properties-save-preset-row {
   display: flex;
+  align-items: center;
   gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.properties-save-preset-btn {
+/* 요구사항(텍스트 스타일 저장, 2026-09 확장): 이름을 직접 입력하는 칸 — properties-color-hex-input과
+   같은 톤(테두리 없이 연한 회색 채움)의 작은 입력창. */
+.properties-style-name-input {
   flex: 1;
+  min-width: 0;
+  font: inherit;
   font-size: var(--font-size-xs);
-  padding: 7px 6px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--color-fill);
+  color: var(--color-text);
+}
+
+.properties-style-name-input:focus {
+  outline: none;
+  background: var(--color-fill-hover);
+}
+
+/* 2026-09-07 피드백(3차)/2026-09-08(회색 카드 26px 통일): 다른 아이콘형 회색 카드
+   (.properties-tile 등, 26px)와 폭·높이를 맞췄다 — "저장됨" 텍스트는 이 폭에 안
+   들어가서 저장 직후엔 체크 아이콘으로 바뀐다(PropertiesPanel.tsx 참고). */
+.properties-save-preset-btn {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  padding: 0;
   border-radius: var(--radius-sm);
   border: none;
   background: var(--color-fill);
@@ -378,39 +402,67 @@
   cursor: pointer;
 }
 
-.properties-save-preset-btn:hover {
+.properties-save-preset-btn:hover:not(:disabled) {
   background: var(--color-fill-hover);
   color: var(--color-text);
 }
 
-/* 요구사항(자주 사용하는 색상 위치 통합): 색상을 갖는 모든 사이드바 섹션의 마지막
-   줄 — 라벨이 다른 행들(2~4자)보다 길어서 라벨을 위에, 스와치를 그 아래 줄에 둔다
-   (properties-row의 좌측 고정폭 라벨 배치와 다름). */
-.properties-recent-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.properties-save-preset-btn:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
-.properties-recent-label {
-  font-size: var(--font-size-sm);
+/* 저장된 스타일 목록 — 이름이 곧 라벨인 작은 알약 칩(.pdf-viewer-page-badge와 같은
+   999px 알약 관례 재사용). */
+.properties-style-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.properties-style-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--font-size-xs);
+  padding: 4px 4px 4px 9px;
+  border-radius: 999px;
+  background: var(--color-fill);
   color: var(--color-text-secondary);
 }
 
-/* 요구사항: 자주 사용하는 색상의 실제 색상 원들은 왼쪽 정렬로 둔다(라벨 줄과
-   달리 이 줄만은 예외 — 나머지 행의 "라벨 왼쪽/컨트롤 오른쪽" 규칙과 무관하게
-   색상칩 자체는 항상 왼쪽부터 채운다). */
-.properties-recent-swatches {
+.properties-style-chip-remove {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
-  gap: 10.2px;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
 }
 
+.properties-style-chip-remove:hover {
+  background: var(--color-fill-hover);
+  color: var(--color-text);
+}
+
+/* 요구사항(팔레트 폐지, 2026-09-08): 기본 프리셋 5색 + 즐겨찾기를 "라벨 위/스와치
+   아래" 2줄로 보여주던 팔레트 섹션(FrequentColorsRow, 라벨 "팔레트")을 삭제하고
+   즐겨찾기만 "색상" 줄 안에 합쳤다 — 이 2줄 레이아웃(.properties-recent-row/
+   -recent-label/-recent-swatches)과 프레임 크기 프리셋 전용 한 줄 컨테이너
+   (.properties-frame-size-row, TileGroup으로 교체됨)를 쓰던 곳이 이제 하나도
+   없어서 클래스 자체를 지웠다. 자주 쓰는 색상 스와치는 다른 색상 카드와 똑같이
+   .properties-row-control(위쪽 flex:1 규칙) 안에서 .properties-round-swatch로
+   그려진다. */
+
 .properties-round-swatch {
-  width: 20px;
-  height: 20px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   /* 요구사항: 검정 테두리 대신 라이트 그레이 테두리만 — 흰색 등 밝은 색이
      배경에 묻히지 않을 정도의 최소 경계선. */
@@ -430,6 +482,7 @@
    노트는 ColorPickerPopover.tsx 참고) — 여기서는 크기/여백만 정의한다. */
 /* 요구사항: 색상 트리거를 "자주 사용하는 색상"과 같은 원형으로 통일하되 크기는
    그대로 두고(26px), 검정 테두리 대신 라이트 그레이 테두리만 쓴다. */
+/* 2026-09-07 피드백(3차): 마찬가지로 회색 카드(26px)와 지름을 맞춤. */
 .properties-color-trigger {
   width: 26px;
   height: 26px;

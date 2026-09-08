@@ -173,6 +173,17 @@ export function CloseIcon({ size = 13 }: IconProps) {
   );
 }
 
+/** 요구사항(회색 카드 26px 통일, 2026-09-08): "저장" 버튼을 26px 폭으로 맞추면서
+ * 저장 직후 피드백 텍스트("저장됨", 3글자)가 그 폭에 안 들어가 체크 아이콘으로
+ * 대체했다 — PropertiesPanel.tsx의 SaveTextDefaultsRow 참고. */
+export function CheckIcon({ size = 13 }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
+      <path d="M4.5 10.5 8.3 14.3 15.5 6" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 /** 파일 트리 확장/접기 화살촉. 오른쪽을 가리키는 하나로 두고, 펼친 상태에서는
  * CSS로 90도 회전시켜 아래를 가리키게 한다(별도 아이콘 두 벌을 만들 필요 없음). */
 export function CaretIcon({ size = 10 }: IconProps) {

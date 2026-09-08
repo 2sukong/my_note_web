@@ -1051,7 +1051,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
           // 글자 크기(baseFontSize)를 REFERENCE_FONT_SIZE(16) 대비 배율로 바꾸고,
           // 커스텀 폰트가 같은 font-size라도 실제 렌더링 크기가 다를 수 있다는 점을
           // fontHeightScaleFor(위 AnnotationBubble 크기 보정과 동일한 근거)로 보정해
-          // BULLET_INDENT_UNIT(기준 24px)에 곱한다 — 글자가 크면 한 단계 들여쓰기도
+          // BULLET_INDENT_UNIT(기준 12px)에 곱한다 — 글자가 크면 한 단계 들여쓰기도
           // 그만큼 넓어지고, 작으면 좁아진다.
           const bulletFontScale =
             (object.baseFontSize / REFERENCE_FONT_SIZE) * fontHeightScaleFor(object.fontFamily || DEFAULT_FONT_FAMILY);

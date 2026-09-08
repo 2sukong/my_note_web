@@ -1,19 +1,15 @@
 import type { TextObject } from '../../types/object';
 import { DEFAULT_FONT_FAMILY } from '../../objects/text/fontOptions';
 import { LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, LINE_HEIGHT_STEP, LINE_HEIGHT_DEFAULT, clampLineHeight } from '../../objects/text/lineSpacing';
-import { TEXT_COLORS, TEXT_COLOR_IDS } from '../../objects/text/textColors';
 import { BoldIcon, BorderToggleIcon } from '../../objects/style/StyleIcons';
 import { ColorPickerPopover } from '../../objects/style/ColorPickerPopover';
 import { RecentColorSwatches } from '../../objects/style/RecentColorSwatches';
-import { usePresetColorVisibilityStore } from '../../store/presetColorVisibilityStore';
 import { FONT_SIZE_PRESETS } from '../../objects/text/fontSizePresets';
 import {
   Row,
-  FrequentColorsRow,
   Tile,
   Dropdown,
   FontPickerRow,
-  PresetSwatchRow,
   NumberStepper,
 } from '../PropertiesPanel';
 
@@ -27,10 +23,10 @@ import {
  * (= 객체 전체에 적용하는 경로)만 추려서 새로 짰다 — update prop 하나로 usePdfOverlayStore에
  * 반영되도록 canvas/pdf/PdfOverlayPropertiesPanel.tsx가 결선한다.
  *
- * Row/Tile/Dropdown/FontPickerRow/PresetSwatchRow/FrequentColorsRow/NumberStepper와
- * 색상 팔레트(TEXT_COLORS 등), 줄 간격 상수는 전부 메인 캔버스와 그대로 공유한다 —
+ * Row/Tile/Dropdown/FontPickerRow/NumberStepper는 전부 메인 캔버스와 그대로 공유한다 —
  * 별도 UI를 만들 이유가 없는 순수 프레젠테이션 조각들이다(PropertiesPanel.tsx의 export
- * 주석 참고).
+ * 주석 참고). 팔레트(기본 제공 프리셋 5색)는 2026-09-08에 폐지되어 "자주 쓰는 색상"만
+ * 색상 줄에 합쳐 보여준다 — 메인 캔버스 TextSection과 동일한 결정.
  */
 export function PdfOverlayTextSection({
   object,
@@ -46,10 +42,6 @@ export function PdfOverlayTextSection({
   const sizeOptions = FONT_SIZE_PRESETS.includes(currentSize)
     ? FONT_SIZE_PRESETS
     : [...FONT_SIZE_PRESETS, currentSize].sort((a, b) => a - b);
-
-  const hiddenTextIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.text);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleTextIds = TEXT_COLOR_IDS.filter((id) => !hiddenTextIds.includes(id));
 
   return (
     <>
@@ -71,7 +63,14 @@ export function PdfOverlayTextSection({
           onChange={(s) => update({ baseFontSize: s })}
         />
       </Row>
-      <Row label="텍스트 색상">
+      <Row label="색상">
+        <RecentColorSwatches
+          category="text"
+          onPick={(color) => update({ color }, `style-color:${object.id}`)}
+          activeColor={currentColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
         <ColorPickerPopover
           label="텍스트 색상"
           value={currentColor}
@@ -93,22 +92,6 @@ export function PdfOverlayTextSection({
           <BorderToggleIcon enabled={object.borderEnabled !== false} />
         </Tile>
       </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleTextIds}
-          labelOf={(id) => TEXT_COLORS[id].label}
-          swatchOf={(id) => TEXT_COLORS[id].value}
-          isActive={(id) => currentColor === TEXT_COLORS[id].value}
-          onPick={(id) => update({ color: TEXT_COLORS[id].value }, `style-color:${object.id}`)}
-          onHide={(id) => hidePreset('text', id)}
-        />
-        <RecentColorSwatches
-          category="text"
-          onPick={(color) => update({ color }, `style-color:${object.id}`)}
-          activeColor={currentColor}
-          swatchClassName="properties-round-swatch"
-        />
-      </FrequentColorsRow>
     </>
   );
 }

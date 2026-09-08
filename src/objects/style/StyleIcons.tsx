@@ -180,6 +180,28 @@ export function EraserIcon({ active }: { active: boolean }) {
   );
 }
 
+/** 요구사항(프레임 크기 프리셋 카드 아이콘화, 2026-09-08): 기존엔 "A4"/"정사각형"/
+ * "와이드" 텍스트 버튼이었으나, 다른 회색 카드(−/+ 스테퍼 등)와 폭을 26px로
+ * 맞추면서 "정사각형" 같은 4음절 라벨은 그 폭에 텍스트로 들어갈 수 없어 다른
+ * 옵션 타일(모서리/채우기 등)과 같은 방식으로 아이콘화했다 — 이름은 title
+ * 툴팁(Tile의 title prop)으로 그대로 노출된다. 실제 프레임 비율과 완전히
+ * 같은 값을 쓰진 않고(뷰박스가 작아 세로로 아주 긴 비율은 알아보기 어려움),
+ * 세로로 긴 사각형/정사각형/가로로 긴 사각형이라는 것만 뚜렷이 구분되게
+ * 단순화했다. */
+export function FrameSizeIcon({ variant }: { variant: string }) {
+  const rect =
+    variant === 'a4'
+      ? { x: 7, y: 3, width: 10, height: 18 }
+      : variant === 'square'
+        ? { x: 4, y: 4, width: 16, height: 16 }
+        : { x: 3, y: 7, width: 18, height: 10 };
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16">
+      <rect {...rect} rx="1.5" fill="none" stroke={STROKE} strokeWidth="2" />
+    </svg>
+  );
+}
+
 export function BoldIcon() {
   return (
     <svg viewBox="0 0 24 24" width="16" height="16">

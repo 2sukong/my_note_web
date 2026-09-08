@@ -115,7 +115,8 @@ export function CanvasSearch() {
         title="이 페이지에서 찾기(프레임 이름·텍스트)"
         aria-label="이 페이지에서 찾기"
       >
-        <SearchIcon size={15} />
+        {/* 2026-09: 왼쪽 레일(PDF 라이브러리)의 아이콘과 시각 크기를 16px로 통일 */}
+        <SearchIcon size={16} />
       </button>
       {isOpen && (
         <div className="canvas-search-panel">

@@ -1,7 +1,9 @@
 import type { BulletChar, IndentAnchor } from './types';
 
-/** '-'/'·' 기호 전환 한 단계당 들여쓰는 픽셀 양 (zoom=1 기준 world 단위). */
-export const BULLET_INDENT_UNIT = 24;
+/** '-'/'·' 기호 전환 한 단계당 들여쓰는 픽셀 양 (zoom=1 기준 world 단위).
+ * 2026-09-07 피드백: 기존 24px(스페이스 4칸 정도 간격)가 너무 넓다는 요청으로
+ * 12px(스페이스 2칸 정도)로 절반 축소. */
+export const BULLET_INDENT_UNIT = 12;
 
 function createAnchorId(): string {
   return crypto.randomUUID();
@@ -88,7 +90,7 @@ export function computeEnterAnchor(
  * 자간)가 달라 그 폰트의 실측 배율까지 반영해야 하기 때문이다. anchorEngine.ts는
  * DOM/Canvas 측정 없이 순수 함수로 테스트 가능하게 유지해야 하므로, 그 측정 자체는
  * 호출부(TextObjectView.tsx, fontMetrics.ts의 fontHeightScaleFor)가 맡고 여기서는
- * 계산된 최종 픽셀 값(indentUnit)만 받는다. 넘기지 않으면 BULLET_INDENT_UNIT(24)을
+ * 계산된 최종 픽셀 값(indentUnit)만 받는다. 넘기지 않으면 BULLET_INDENT_UNIT(12)을
  * 그대로 쓴다(하위 호환 — 이 함수를 쓰는 다른 테스트/호출부에 영향 없음).
  */
 export function computeAnchorForNewBullet(

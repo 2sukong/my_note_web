@@ -2,7 +2,7 @@ import { useToolStore } from '../store/toolStore';
 import type { ToolId } from '../store/toolStore';
 import { useInteractionStore } from '../store/interactionStore';
 import { useTextDefaultPresetsStore } from '../store/textDefaultPresetsStore';
-import type { TextPresetKind } from '../store/textDefaultPresetsStore';
+import type { TextDefaultPreset } from '../store/textDefaultPresetsStore';
 import {
   AnnotationIcon,
   ArrowToolIcon,
@@ -66,9 +66,7 @@ export function Toolbar() {
     setTool(tool);
   };
 
-  const applyTextPreset = (kind: TextPresetKind) => {
-    const preset = textPresets[kind];
-    if (!preset) return;
+  const applyTextPreset = (preset: TextDefaultPreset) => {
     deselect();
     applyTextDefaults(preset);
     setTool('text');
@@ -81,29 +79,30 @@ export function Toolbar() {
       <ToolButton tool="select" activeTool={activeTool} label="선택" onClick={() => selectTool('select')} />
       <div className="canvas-toolbar-divider" />
 
-      <div className="canvas-toolbar-text-menu">
-        <ToolButton tool="text" activeTool={activeTool} label="텍스트" onClick={() => selectTool('text')} />
-        <div className="canvas-toolbar-text-flyout">
-          <button
-            type="button"
-            className="canvas-toolbar-text-flyout-item"
-            disabled={!textPresets.title}
-            title={textPresets.title ? '저장된 제목값으로 텍스트 만들기' : '아직 저장된 제목값이 없습니다'}
-            onClick={() => applyTextPreset('title')}
-          >
-            제목
-          </button>
-          <button
-            type="button"
-            className="canvas-toolbar-text-flyout-item"
-            disabled={!textPresets.body}
-            title={textPresets.body ? '저장된 본문값으로 텍스트 만들기' : '아직 저장된 본문값이 없습니다'}
-            onClick={() => applyTextPreset('body')}
-          >
-            본문
-          </button>
+      {/* 요구사항(텍스트 스타일 저장, 2026-09 확장): '제목'/'본문' 두 개 고정 버튼 대신,
+          사용자가 저장한 스타일 목록(textDefaultPresetsStore)을 그대로 나열한다. 저장된
+          스타일이 하나도 없으면 빈 플라이아웃이 hover 시 뜨지 않도록 메뉴 래퍼 자체를
+          생략하고 평범한 '텍스트' 버튼만 보여준다. */}
+      {textPresets.length > 0 ? (
+        <div className="canvas-toolbar-text-menu">
+          <ToolButton tool="text" activeTool={activeTool} label="텍스트" onClick={() => selectTool('text')} />
+          <div className="canvas-toolbar-text-flyout">
+            {textPresets.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="canvas-toolbar-text-flyout-item"
+                title={`저장된 '${preset.name}' 스타일로 텍스트 만들기`}
+                onClick={() => applyTextPreset(preset.preset)}
+              >
+                {preset.name}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        <ToolButton tool="text" activeTool={activeTool} label="텍스트" onClick={() => selectTool('text')} />
+      )}
       <ToolButton tool="highlight" activeTool={activeTool} label="형광펜" onClick={() => selectTool('highlight')} />
       <ToolButton tool="annotation" activeTool={activeTool} label="주석" onClick={() => selectTool('annotation')} />
 

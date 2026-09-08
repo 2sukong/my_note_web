@@ -7,18 +7,16 @@ import { useHistoryStore } from '../store/historyStore';
 import { useFontStore } from '../store/fontStore';
 import { useToolStore } from '../store/toolStore';
 import { useTextDefaultPresetsStore } from '../store/textDefaultPresetsStore';
-import type { TextDefaultPreset, TextPresetKind } from '../store/textDefaultPresetsStore';
-import { usePresetColorVisibilityStore } from '../store/presetColorVisibilityStore';
+import type { TextDefaultPreset } from '../store/textDefaultPresetsStore';
 import { useTextRangeStore } from '../store/textRangeStore';
 import { applyRunStyle, representativeRunStyle } from '../objects/text/runStyle';
 import { BUILTIN_FONT_OPTIONS, DEFAULT_FONT_FAMILY } from '../objects/text/fontOptions';
 import { LINE_HEIGHT_DEFAULT, LINE_HEIGHT_MAX, LINE_HEIGHT_MIN, LINE_HEIGHT_STEP, clampLineHeight } from '../objects/text/lineSpacing';
 import { FONT_SIZE_PRESETS } from '../objects/text/fontSizePresets';
-import { HIGHLIGHT_COLORS, HIGHLIGHT_COLOR_IDS, highlightSwatchFor } from '../objects/text/highlightColors';
-import { ANNOTATION_COLORS, ANNOTATION_COLOR_IDS, annotationVisualsFor } from '../objects/text/annotationColors';
+import { highlightSwatchFor } from '../objects/text/highlightColors';
+import { annotationVisualsFor } from '../objects/text/annotationColors';
 import { BUBBLE_FONT_SIZE_BASE } from '../objects/text/AnnotationBubble';
-import { TEXT_COLORS, TEXT_COLOR_IDS } from '../objects/text/textColors';
-import { STROKE_COLORS, STROKE_COLOR_IDS, strokeColorValueFor } from '../objects/shapes/strokeColors';
+import { strokeColorValueFor } from '../objects/shapes/strokeColors';
 import { FRAME_SIZE_PRESETS } from '../objects/frame/frameDefaults';
 import type { FrameSizePreset } from '../objects/frame/frameDefaults';
 import { FRAME_THEMES, FRAME_THEME_IDS, resolveFrameTheme, resolveFrameCenterFold } from '../objects/frame/frameStyles';
@@ -32,12 +30,13 @@ import {
   CornerIcon,
   EraserIcon,
   FillIcon,
+  FrameSizeIcon,
   LineStyleIcon,
   RotateIcon,
   StrokeWidthIcon,
   SwapIcon,
 } from '../objects/style/StyleIcons';
-import { ChevronDownIcon, PlusIcon } from '../icons/Icons';
+import { CheckIcon, ChevronDownIcon, CloseIcon, PlusIcon } from '../icons/Icons';
 import './PropertiesPanel.css';
 
 // FONT_SIZE_PRESETS는 objects/text/fontSizePresets.ts로 옮겼다(canvas/pdf/
@@ -333,21 +332,6 @@ export function Row({ label, children }: { label: string; children: React.ReactN
     <div className="properties-row">
       <span className="properties-row-label">{label}</span>
       <div className="properties-row-control">{children}</div>
-    </div>
-  );
-}
-
-/**
- * 요구사항(자주 사용하는 색상 위치 통합): 색상을 갖는 모든 객체 사이드바(텍스트/
- * 형광펜/주석/화살표/사각형, 선택된 객체·기본값 패널 모두)의 마지막 줄에 항상
- * 동일한 형태로 둔다 — 라벨이 길어서(다른 라벨은 2~4자) Row의 "라벨 56px 고정폭 +
- * 오른쪽 컨트롤" 가로 배치 대신, 라벨을 위에 두고 스와치를 그 아래에서 감싸게 한다.
- */
-export function FrequentColorsRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="properties-recent-row">
-      <span className="properties-recent-label">자주 사용하는 색상</span>
-      <div className="properties-recent-swatches">{children}</div>
     </div>
   );
 }
@@ -718,48 +702,6 @@ export function NumberStepper({
   );
 }
 
-/**
- * 프리셋 색상 스와치 공통 UI. 클릭하면 적용, 우클릭하면 그 프리셋을 카테고리별
- * 목록에서 숨긴다(usePresetColorVisibilityStore — 기본 제공 색상도 삭제할 수
- * 있어야 한다는 요구사항). id와 실제 CSS 색을 어떻게 연결할지, 클릭/활성 판정을
- * 어떻게 할지는 호출부마다 다르므로(하이라이트/주석은 id 자체를 저장하고, 텍스트/
- * 도형은 실제 hex를 저장) 콜백으로 위임한다.
- */
-export function PresetSwatchRow<T extends string>({
-  ids,
-  labelOf,
-  swatchOf,
-  isActive,
-  onPick,
-  onHide,
-}: {
-  ids: T[];
-  labelOf: (id: T) => string;
-  swatchOf: (id: T) => string;
-  isActive: (id: T) => boolean;
-  onPick: (id: T) => void;
-  onHide: (id: T) => void;
-}) {
-  return (
-    <>
-      {ids.map((id) => (
-        <button
-          key={id}
-          type="button"
-          title={`${labelOf(id)} (우클릭: 목록에서 삭제)`}
-          onClick={() => onPick(id)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onHide(id);
-          }}
-          className={isActive(id) ? 'properties-round-swatch is-active' : 'properties-round-swatch'}
-          style={{ background: swatchOf(id) }}
-        />
-      ))}
-    </>
-  );
-}
-
 /** BUILTIN_FONT_OPTIONS에서 사용자가 목록 관리 팝오버로 숨긴(요구사항 3번) 항목을 뺀다. */
 function useVisibleBuiltinFonts() {
   const hiddenBuiltinIds = useFontStore((s) => s.hiddenBuiltinIds);
@@ -873,9 +815,6 @@ function TextSection({
     ? FONT_SIZE_PRESETS
     : [...FONT_SIZE_PRESETS, currentSize].sort((a, b) => a - b);
 
-  const hiddenTextIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.text);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleTextIds = TEXT_COLOR_IDS.filter((id) => !hiddenTextIds.includes(id));
 
   return (
     <>
@@ -903,7 +842,19 @@ function TextSection({
           onChange={(s) => applyToRangeOrObject('fontSize', s)}
         />
       </Row>
-      <Row label="텍스트 색상">
+      <Row label="색상">
+        {/* 요구사항(팔레트 폐지, 2026-09-08): 기본 제공 프리셋 5색은 없애고, 사용자가
+            ColorPickerPopover의 "추가" 버튼으로 저장해둔 자유 색상(즐겨찾기)만 이 줄에
+            왼쪽부터 나열한다. max=4는 라벨("색상", 44px)과 가장 오른쪽 색상 원(현재
+            색 트리거)까지 한 줄에 겹치지 않고 들어가는 실측 한계값 — 그 이상은 팝오버
+            안의 전체 목록(최대 8개)에서만 볼 수 있다. */}
+        <RecentColorSwatches
+          category="text"
+          onPick={(color) => applyToRangeOrObject('color', color)}
+          activeColor={currentColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
         <ColorPickerPopover
           label="텍스트 색상"
           value={currentColor}
@@ -927,25 +878,6 @@ function TextSection({
           <BorderToggleIcon enabled={object.borderEnabled !== false} />
         </Tile>
       </Row>
-      <FrequentColorsRow>
-        {/* 요구사항(자주 사용하는 색상 위치 통합): 프리셋 5색 + 사용자가 ColorPickerPopover의
-            "추가" 버튼으로 저장해둔 자유 색상을 여기 한 줄에 모아 보여준다 — "색상" 행은
-            이제 현재 색을 보여주는 피커 트리거 하나만 남긴다. */}
-        <PresetSwatchRow
-          ids={visibleTextIds}
-          labelOf={(id) => TEXT_COLORS[id].label}
-          swatchOf={(id) => TEXT_COLORS[id].value}
-          isActive={(id) => currentColor === TEXT_COLORS[id].value}
-          onPick={(id) => applyToRangeOrObject('color', TEXT_COLORS[id].value)}
-          onHide={(id) => hidePreset('text', id)}
-        />
-        <RecentColorSwatches
-          category="text"
-          onPick={(color) => applyToRangeOrObject('color', color)}
-          activeColor={currentColor}
-          swatchClassName="properties-round-swatch"
-        />
-      </FrequentColorsRow>
     </>
   );
 }
@@ -975,9 +907,6 @@ function TextDefaultsSection() {
   const setTextBold = useToolStore((s) => s.setTextBold);
   const setTextBorderEnabled = useToolStore((s) => s.setTextBorderEnabled);
   const setTextLineHeight = useToolStore((s) => s.setTextLineHeight);
-  const hiddenTextIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.text);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleTextIds = TEXT_COLOR_IDS.filter((id) => !hiddenTextIds.includes(id));
   const sizeOptions = FONT_SIZE_PRESETS.includes(textFontSize)
     ? FONT_SIZE_PRESETS
     : [...FONT_SIZE_PRESETS, textFontSize].sort((a, b) => a - b);
@@ -1001,7 +930,14 @@ function TextDefaultsSection() {
       <Row label="크기">
         <Dropdown value={textFontSize} options={sizeOptions} labelOf={(s) => `${s}px`} onChange={setTextFontSize} />
       </Row>
-      <Row label="텍스트 색상">
+      <Row label="색상">
+        <RecentColorSwatches
+          category="text"
+          onPick={setTextColor}
+          activeColor={textColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
         <ColorPickerPopover label="텍스트 색상" value={textColor} onChange={setTextColor} category="text" />
       </Row>
       <Row label="굵기">
@@ -1018,22 +954,6 @@ function TextDefaultsSection() {
           <BorderToggleIcon enabled={textBorderEnabled} />
         </Tile>
       </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleTextIds}
-          labelOf={(id) => TEXT_COLORS[id].label}
-          swatchOf={(id) => TEXT_COLORS[id].value}
-          isActive={(id) => textColor === TEXT_COLORS[id].value}
-          onPick={(id) => setTextColor(TEXT_COLORS[id].value)}
-          onHide={(id) => hidePreset('text', id)}
-        />
-        <RecentColorSwatches
-          category="text"
-          onPick={setTextColor}
-          activeColor={textColor}
-          swatchClassName="properties-round-swatch"
-        />
-      </FrequentColorsRow>
       <SaveTextDefaultsRow
         preset={{
           color: textColor,
@@ -1049,37 +969,88 @@ function TextDefaultsSection() {
 }
 
 /**
- * 요구사항(텍스트 기본값 저장): 지금 사이드바에 설정된 값을 '제목'/'본문' 프리셋으로
- * 수동 저장한다(자동 저장 아님 — 버튼을 눌러야만 textDefaultPresetsStore에 기록됨).
- * 저장된 프리셋은 상단 툴바 '텍스트' 버튼에 마우스를 올렸을 때 뜨는 메뉴에서 바로
- * 적용할 수 있다(canvas/Toolbar.tsx).
+ * 요구사항(텍스트 스타일 저장, 2026-09 확장): 지금 사이드바에 설정된 값을 사용자가
+ * 직접 입력한 이름으로 저장한다(자동 저장 아님 — 저장 버튼을 눌러야만
+ * textDefaultPresetsStore에 기록됨). 예전에는 '제목'/'본문' 두 자리 고정이었지만,
+ * 이제 이름을 자유롭게 정해 원하는 만큼('제목', '본문', '중요' 등) 저장할 수 있다
+ * — 기존에 저장해둔 제목/본문 값은 스토어가 자동으로 같은 이름의 목록 항목으로
+ * 이어받는다(마이그레이션은 textDefaultPresetsStore.ts 참고). 저장된 스타일은
+ * 상단 툴바 '텍스트' 버튼에 마우스를 올렸을 때 뜨는 메뉴에서 바로 적용할 수
+ * 있다(canvas/Toolbar.tsx). 같은 이름으로 다시 저장하면 그 값을 덮어쓴다.
  */
 function SaveTextDefaultsRow({ preset }: { preset: TextDefaultPreset }) {
+  const presets = useTextDefaultPresetsStore((s) => s.presets);
   const savePreset = useTextDefaultPresetsStore((s) => s.savePreset);
-  const [savedKind, setSavedKind] = useState<TextPresetKind | null>(null);
+  const removePreset = useTextDefaultPresetsStore((s) => s.removePreset);
+  const [name, setName] = useState('');
+  const [justSaved, setJustSaved] = useState(false);
 
-  const handleSave = (kind: TextPresetKind) => {
-    savePreset(kind, preset);
-    setSavedKind(kind);
-    window.setTimeout(() => setSavedKind((current) => (current === kind ? null : current)), 1200);
+  const handleSave = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    savePreset(trimmed, preset);
+    setName('');
+    setJustSaved(true);
+    window.setTimeout(() => setJustSaved(false), 1200);
   };
 
   return (
-    <div className="properties-save-preset-row">
-      <button type="button" className="properties-save-preset-btn" onClick={() => handleSave('title')}>
-        {savedKind === 'title' ? '저장됨' : '제목값으로 저장'}
-      </button>
-      <button type="button" className="properties-save-preset-btn" onClick={() => handleSave('body')}>
-        {savedKind === 'body' ? '저장됨' : '본문값으로 저장'}
-      </button>
-    </div>
+    <>
+      {/* 요구사항(스타일 줄 한 줄 배치, 2026-09-08): '스타일' 라벨 + 이름 입력 +
+          저장 버튼이 프레임 크기 프리셋(FrameSizePresetRow)과 똑같이 한 줄에 오도록
+          공용 <Row>를 재사용한다 — 저장된 스타일 칩 목록은 그 아래 별도 줄(형태가
+          다른 가변 개수 목록이라 한 줄에 억지로 넣지 않음)로 남긴다. */}
+      <Row label="스타일">
+        <div className="properties-save-preset-row">
+          <input
+            type="text"
+            className="properties-style-name-input"
+            placeholder="스타일 이름"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSave();
+            }}
+          />
+          {/* 요구사항(회색 카드 26px 통일): 이 버튼도 다른 회색 카드와 같은 26px
+              정사각형으로 맞춘다 — "저장됨"(3글자) 피드백은 그 폭에 안 들어가서
+              체크 아이콘으로 대체(title 툴팁으로 "저장됨" 노출). */}
+          <button
+            type="button"
+            className="properties-save-preset-btn"
+            onClick={handleSave}
+            disabled={!name.trim()}
+            title={justSaved ? '저장됨' : '저장'}
+          >
+            {justSaved ? <CheckIcon size={13} /> : '저장'}
+          </button>
+        </div>
+      </Row>
+      {presets.length > 0 && (
+        <div className="properties-style-chip-row">
+          {presets.map((p) => (
+            <span key={p.id} className="properties-style-chip">
+              {p.name}
+              <button
+                type="button"
+                className="properties-style-chip-remove"
+                title={`'${p.name}' 스타일 삭제`}
+                onClick={() => removePreset(p.id)}
+              >
+                <CloseIcon size={9} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
 /** canvas/pdf/PdfOverlayPropertiesPanel.tsx가 그대로 재사용한다 — types/pdf.ts 주석대로
  * PDF 오버레이의 ArrowObject는 메인 캔버스와 100% 같은 타입이고, 이 컴포넌트는 store를
- * 직접 구독하지 않고 object/update prop만으로 동작하므로(usePresetColorVisibilityStore는
- * 전역 공용) 수정 없이 안전하게 공유할 수 있다. */
+ * 직접 구독하지 않고 object/update prop만으로 동작하므로(recentColorsStore는 전역
+ * 공용) 수정 없이 안전하게 공유할 수 있다. */
 export function ArrowSection({
   object,
   update,
@@ -1089,9 +1060,6 @@ export function ArrowSection({
 }) {
   const arrowHead = object.arrowHead ?? 'triangle';
   const lineStyle = object.lineStyle ?? 'solid';
-  const hiddenShapeIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.shape);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleStrokeIds = STROKE_COLOR_IDS.filter((id) => !hiddenShapeIds.includes(id));
 
   return (
     <>
@@ -1111,6 +1079,13 @@ export function ArrowSection({
       <LineStyleRow value={lineStyle} onChange={(v) => update({ lineStyle: v })} />
       <StrokeWidthRow value={object.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} />
       <Row label="색상">
+        <RecentColorSwatches
+          category="shape"
+          onPick={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
+          activeColor={object.strokeColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
         <ColorPickerPopover
           label="선 색상"
           value={object.strokeColor}
@@ -1118,22 +1093,6 @@ export function ArrowSection({
           category="shape"
         />
       </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleStrokeIds}
-          labelOf={(id) => STROKE_COLORS[id].label}
-          swatchOf={(id) => STROKE_COLORS[id].value}
-          isActive={(id) => object.strokeColor === STROKE_COLORS[id].value}
-          onPick={(id) => update({ strokeColor: STROKE_COLORS[id].value }, `style-color:${object.id}`)}
-          onHide={(id) => hidePreset('shape', id)}
-        />
-        <RecentColorSwatches
-          category="shape"
-          onPick={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
-          activeColor={object.strokeColor}
-          swatchClassName="properties-round-swatch"
-        />
-      </FrequentColorsRow>
     </>
   );
 }
@@ -1150,9 +1109,6 @@ export function RectangleSection({
   const lineStyle = object.lineStyle ?? 'solid';
   const fillEnabled = object.fillEnabled ?? false;
   const fillOpacity = object.fillOpacity ?? 0.3;
-  const hiddenShapeIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.shape);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleStrokeIds = STROKE_COLOR_IDS.filter((id) => !hiddenShapeIds.includes(id));
 
   return (
     <>
@@ -1192,7 +1148,14 @@ export function RectangleSection({
           <span className="properties-range-value">{Math.round(fillOpacity * 100)}%</span>
         </Row>
       )}
-      <Row label="테두리 색상">
+      <Row label="색상">
+        <RecentColorSwatches
+          category="shape"
+          onPick={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
+          activeColor={object.strokeColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
         <ColorPickerPopover
           label="테두리 색상"
           value={object.strokeColor}
@@ -1200,22 +1163,6 @@ export function RectangleSection({
           category="shape"
         />
       </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleStrokeIds}
-          labelOf={(id) => STROKE_COLORS[id].label}
-          swatchOf={(id) => STROKE_COLORS[id].value}
-          isActive={(id) => object.strokeColor === STROKE_COLORS[id].value}
-          onPick={(id) => update({ strokeColor: STROKE_COLORS[id].value }, `style-color:${object.id}`)}
-          onHide={(id) => hidePreset('shape', id)}
-        />
-        <RecentColorSwatches
-          category="shape"
-          onPick={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
-          activeColor={object.strokeColor}
-          swatchClassName="properties-round-swatch"
-        />
-      </FrequentColorsRow>
     </>
   );
 }
@@ -1233,9 +1180,6 @@ function ArrowDefaultsSection() {
   const setShapeLineStyle = useToolStore((s) => s.setShapeLineStyle);
   const setShapeStrokeColor = useToolStore((s) => s.setShapeStrokeColor);
   const setShapeStrokeWidth = useToolStore((s) => s.setShapeStrokeWidth);
-  const hiddenShapeIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.shape);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleStrokeIds = STROKE_COLOR_IDS.filter((id) => !hiddenShapeIds.includes(id));
 
   return (
     <>
@@ -1259,24 +1203,15 @@ function ArrowDefaultsSection() {
             들고 있다가 spawn 시점에 strokeColorValueFor로 해석된다(DrawPreview.tsx도
             동일) — 이미 만들어진 객체(ArrowSection)와 달리 여기서는 id 자체로
             비교/저장한다. */}
-        <ColorPickerPopover label="선 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
-      </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleStrokeIds}
-          labelOf={(id) => STROKE_COLORS[id].label}
-          swatchOf={(id) => STROKE_COLORS[id].value}
-          isActive={(id) => strokeColor === id}
-          onPick={(id) => setShapeStrokeColor(id)}
-          onHide={(id) => hidePreset('shape', id)}
-        />
         <RecentColorSwatches
           category="shape"
           onPick={setShapeStrokeColor}
           activeColor={strokeColorValueFor(strokeColor)}
           swatchClassName="properties-round-swatch"
+          max={4}
         />
-      </FrequentColorsRow>
+        <ColorPickerPopover label="선 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
+      </Row>
     </>
   );
 }
@@ -1295,9 +1230,6 @@ function RectangleDefaultsSection() {
   const setShapeStrokeWidth = useToolStore((s) => s.setShapeStrokeWidth);
   const setShapeFillEnabled = useToolStore((s) => s.setShapeFillEnabled);
   const setShapeFillOpacity = useToolStore((s) => s.setShapeFillOpacity);
-  const hiddenShapeIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.shape);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleStrokeIds = STROKE_COLOR_IDS.filter((id) => !hiddenShapeIds.includes(id));
 
   return (
     <>
@@ -1337,25 +1269,16 @@ function RectangleDefaultsSection() {
           <span className="properties-range-value">{Math.round(fillOpacity * 100)}%</span>
         </Row>
       )}
-      <Row label="테두리 색상">
-        <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
-      </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleStrokeIds}
-          labelOf={(id) => STROKE_COLORS[id].label}
-          swatchOf={(id) => STROKE_COLORS[id].value}
-          isActive={(id) => strokeColor === id}
-          onPick={(id) => setShapeStrokeColor(id)}
-          onHide={(id) => hidePreset('shape', id)}
-        />
+      <Row label="색상">
         <RecentColorSwatches
           category="shape"
           onPick={setShapeStrokeColor}
           activeColor={strokeColorValueFor(strokeColor)}
           swatchClassName="properties-round-swatch"
+          max={4}
         />
-      </FrequentColorsRow>
+        <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
+      </Row>
     </>
   );
 }
@@ -1363,7 +1286,13 @@ function RectangleDefaultsSection() {
 /** FRAME_SIZE_PRESETS 중 하나를 고르는 가변폭 텍스트 버튼 행. FrameSection(선택된
  * Frame)과 FrameDefaultsSection(다음에 만들 Frame) 둘 다에서 공유한다 — 현재 폭/높이가
  * 어느 프리셋과 정확히 일치하는지(activeId)는 호출부가 계산해서 넘긴다(직접 입력이나
- * 방향 전환으로 프리셋 값에서 벗어나면 자연스럽게 아무 것도 활성화되지 않는다). */
+ * 방향 전환으로 프리셋 값에서 벗어나면 자연스럽게 아무 것도 활성화되지 않는다).
+ *
+ * 요구사항(2026-09-07 피드백): '크기' 라벨과 프리셋 버튼이 다른 옵션 행과 똑같이
+ * 공용 <Row>(라벨 왼쪽 + 컨트롤 오른쪽, 한 줄)에 나란히 온다. properties-panel-body의
+ * gap:12px를 그대로 물려받으므로 위아래 행과의 간격도 자동으로 동일해진다. 2026-09-08:
+ * 텍스트 버튼(A4/정사각형/와이드)이 26px 회색 카드 규격에 안 맞아 TileGroup + 아이콘
+ * (FrameSizeIcon)으로 바꿨다 — 아래 참고. */
 function FrameSizePresetRow({
   activeId,
   onPick,
@@ -1372,21 +1301,19 @@ function FrameSizePresetRow({
   onPick: (preset: FrameSizePreset) => void;
 }) {
   return (
-    <div className="properties-recent-row">
-      <span className="properties-recent-label">크기 프리셋</span>
-      <div className="properties-recent-swatches">
+    <Row label="크기">
+      {/* 요구사항(회색 카드 26px 통일, 2026-09-08): 예전엔 "A4"/"정사각형"/"와이드"
+          텍스트 버튼(라벨 길이만큼 폭이 다름)이었지만, 다른 회색 카드와 같은 26px
+          정사각형으로 맞추기 위해 다른 옵션 타일(모서리/채우기 등)과 동일하게
+          TileGroup + 아이콘 방식으로 바꿨다 — 이름은 title 툴팁으로 확인 가능. */}
+      <TileGroup>
         {FRAME_SIZE_PRESETS.map((preset) => (
-          <button
-            key={preset.id}
-            type="button"
-            className={activeId === preset.id ? 'properties-preset-btn is-active' : 'properties-preset-btn'}
-            onClick={() => onPick(preset)}
-          >
-            {preset.label}
-          </button>
+          <Tile key={preset.id} active={activeId === preset.id} onClick={() => onPick(preset)} title={preset.label}>
+            <FrameSizeIcon variant={preset.id} />
+          </Tile>
         ))}
-      </div>
-    </div>
+      </TileGroup>
+    </Row>
   );
 }
 
@@ -1701,33 +1628,21 @@ function HighlightSection({
   color: string;
   onChange: (color: string) => void;
 }) {
-  const hiddenHighlightIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.highlight);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleHighlightIds = HIGHLIGHT_COLOR_IDS.filter((id) => !hiddenHighlightIds.includes(id));
 
   return (
     <>
       <Row label="색상">
-        {/* 요구사항: 색을 고르거나 프리셋을 클릭하는 것만으로는 "자주 쓰는 색상"에
-            자동 추가되지 않는다 — ColorPickerPopover 안의 명시적 "추가" 버튼만 기록한다. */}
-        <ColorPickerPopover label="형광펜 색상" value={highlightSwatchFor(color)} onChange={onChange} category="highlight" />
-      </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleHighlightIds}
-          labelOf={(id) => HIGHLIGHT_COLORS[id].label}
-          swatchOf={(id) => HIGHLIGHT_COLORS[id].swatch}
-          isActive={(id) => color === id}
-          onPick={(id) => onChange(id)}
-          onHide={(id) => hidePreset('highlight', id)}
-        />
+        {/* 요구사항: 색을 고르는 것만으로는 "자주 쓰는 색상"에 자동 추가되지 않는다 —
+            ColorPickerPopover 안의 명시적 "추가" 버튼만 기록한다. */}
         <RecentColorSwatches
           category="highlight"
           onPick={onChange}
           activeColor={highlightSwatchFor(color)}
           swatchClassName="properties-round-swatch"
+          max={4}
         />
-      </FrequentColorsRow>
+        <ColorPickerPopover label="형광펜 색상" value={highlightSwatchFor(color)} onChange={onChange} category="highlight" />
+      </Row>
     </>
   );
 }
@@ -1795,9 +1710,6 @@ function AnnotationSection({
   fontSize: number;
   onFontSizeChange: (size: number) => void;
 }) {
-  const hiddenAnnotationIds = usePresetColorVisibilityStore((s) => s.hiddenByCategory.annotation);
-  const hidePreset = usePresetColorVisibilityStore((s) => s.hidePreset);
-  const visibleAnnotationIds = ANNOTATION_COLOR_IDS.filter((id) => !hiddenAnnotationIds.includes(id));
   const sizeOptions = ANNOTATION_FONT_SIZE_PRESETS.includes(fontSize)
     ? ANNOTATION_FONT_SIZE_PRESETS
     : [...ANNOTATION_FONT_SIZE_PRESETS, fontSize].sort((a, b) => a - b);
@@ -1809,24 +1721,15 @@ function AnnotationSection({
         <Dropdown value={fontSize} options={sizeOptions} labelOf={(s) => `${s}px`} onChange={onFontSizeChange} />
       </Row>
       <Row label="색상">
-        <ColorPickerPopover label="주석 색상" value={annotationVisualsFor(color).tick} onChange={onChange} category="annotation" />
-      </Row>
-      <FrequentColorsRow>
-        <PresetSwatchRow
-          ids={visibleAnnotationIds}
-          labelOf={(id) => ANNOTATION_COLORS[id].label}
-          swatchOf={(id) => ANNOTATION_COLORS[id].swatch}
-          isActive={(id) => color === id}
-          onPick={(id) => onChange(id)}
-          onHide={(id) => hidePreset('annotation', id)}
-        />
         <RecentColorSwatches
           category="annotation"
           onPick={onChange}
           activeColor={annotationVisualsFor(color).tick}
           swatchClassName="properties-round-swatch"
+          max={4}
         />
-      </FrequentColorsRow>
+        <ColorPickerPopover label="주석 색상" value={annotationVisualsFor(color).tick} onChange={onChange} category="annotation" />
+      </Row>
     </>
   );
 }
