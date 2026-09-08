@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFileTreeStore } from '../../storage/fileTreeStore';
 import { useFileTreeUiStore } from './fileTreeUiStore';
-import { exportBackup, importBackup } from '../../storage/backup';
 import { fileSubtreeMatchesQuery } from '../../storage/fileTreeLogic';
 import { SaveStatusIndicator } from '../SaveStatusIndicator';
 import { TrashPanel } from './TrashPanel';
@@ -10,13 +9,11 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CloseIcon,
-  DownloadIcon,
   FolderIcon,
   PageIcon,
   PlusIcon,
   SearchIcon,
   TrashIcon,
-  UploadIcon,
 } from '../../icons/Icons';
 import './FileTreePanel.css';
 
@@ -413,7 +410,6 @@ export function FileTreePanel() {
   const isTrashOpen = useFileTreeUiStore((s) => s.isTrashOpen);
   const openTrash = useFileTreeUiStore((s) => s.openTrash);
   const [isRootDropTarget, setIsRootDropTarget] = useState(false);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
   if (isCollapsed) {
     return (
@@ -430,29 +426,6 @@ export function FileTreePanel() {
       </div>
     );
   }
-
-  const handleExport = async () => {
-    const blob = await exportBackup();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const date = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `my-note-web-backup-${date}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportFile: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!window.confirm('백업 파일을 불러오면 지금 저장된 모든 내용이 이 파일의 내용으로 완전히 대체됩니다. 계속할까요?')) {
-      return;
-    }
-    void importBackup(file).catch((err) => {
-      window.alert(err instanceof Error ? err.message : '가져오기에 실패했습니다.');
-    });
-  };
 
   // 요구사항(찾기): 최상위 File도 FileNode와 동일한 규칙(트래시 숨김 + 검색 매치)으로
   // 걸러낸다 — 여기서 걸러야 FileNode 안 재귀 필터링과 일관되게 "매치되는 가지가
@@ -542,24 +515,6 @@ export function FileTreePanel() {
         {isSearching && visibleRootFileIds.length === 0 && (
           <div className="file-tree-search-empty">검색 결과가 없습니다</div>
         )}
-      </div>
-
-      <div className="file-tree-backup-row">
-        <button type="button" onClick={() => void handleExport()}>
-          내보내기
-          <DownloadIcon size={12} />
-        </button>
-        <button type="button" onClick={() => importInputRef.current?.click()}>
-          가져오기
-          <UploadIcon size={12} />
-        </button>
-        <input
-          ref={importInputRef}
-          type="file"
-          accept="application/json"
-          style={{ display: 'none' }}
-          onChange={handleImportFile}
-        />
       </div>
 
       <ContextMenu />

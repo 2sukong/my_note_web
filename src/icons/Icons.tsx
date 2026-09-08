@@ -218,26 +218,6 @@ export function ChevronDownIcon({ size = 11 }: IconProps) {
   );
 }
 
-/** 내보내기(백업 JSON 다운로드). 아래로 향하는 화살표 + 트레이 선. */
-export function DownloadIcon({ size = 13 }: IconProps) {
-  return (
-    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
-      <path d="M10 3v9.3M6.2 9 10 12.8 13.8 9" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M4 15.8h12" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-/** 가져오기(백업 JSON 업로드). 위로 향하는 화살표 + 트레이 선. */
-export function UploadIcon({ size = 13 }: IconProps) {
-  return (
-    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
-      <path d="M10 12.8V3.5M6.2 7.3 10 3.5l3.8 3.8" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M4 15.8h12" stroke="currentColor" strokeWidth={STROKE_WIDTH} strokeLinecap="round" />
-    </svg>
-  );
-}
-
 /** PDF Library 레일에서 쓰는 문서(PDF) 아이콘. PageIcon과 같은 "접힌 모서리 문서" 톤을
  * 따르되, 본문 줄을 하나 더 짧게 넣어(문단이 아니라 "문서 원본"이라는 느낌) 페이지
  * 아이콘과 실루엣을 살짝 구분했다. */
