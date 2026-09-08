@@ -101,33 +101,22 @@
   overflow: auto;
   overscroll-behavior: contain;
   padding: 12px;
-  /* 요구사항(2026-09, 확대 중 페이지 번호 표시): 아래 .pdf-viewer-page-badge가 이
-     요소를 기준으로 position:absolute하기 위해 필요하다 — 이 요소 자신이 스크롤
-     컨테이너(overflow:auto)이자 동시에 positioned ancestor이면, absolute 자식은
-     "패딩 박스" 기준으로 배치되고 이 요소 자신의 스크롤에는 영향받지 않는다(스크롤되는
-     건 내부 콘텐츠고, 그 콘텐츠에 얹힌 absolute 요소가 이 요소 자체를 containing
-     block으로 삼을 때는 스크롤에 딸려가지 않음) — 그래서 확대 후 패닝(스크롤)해도
-     배지가 항상 stage 상단에 고정되어 보인다. */
-  position: relative;
 }
 
-/* 요구사항(2026-09, 확대 중 페이지 번호 표시): pageZoom>1일 때만 렌더링되는 배지
-   (PdfViewerPanel.tsx). 확대/패닝 중에는 필름스트립이 화면 밖으로 벗어나 있을 수 있어
-   "지금 몇 페이지를 보고 있는지" 놓치기 쉬운데, 이 배지가 항상 stage 위쪽 중앙에
-   떠 있어 그걸 보완한다. pointer-events:none이라 클릭/드래그 등 아래 콘텐츠와의
-   인터랙션을 전혀 가리지 않는다. */
-.pdf-viewer-page-badge {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 5;
-  pointer-events: none;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.6);
-  color: #fff;
+/* 요구사항(2026-09): 기존엔 Ctrl+스크롤로 확대(pageZoom>1)했을 때만 stage 위에 떠서
+   보이던 페이지 배지(.pdf-viewer-page-badge, 줌 로직에 종속돼 있었다)를 삭제하고,
+   대신 줌 여부와 무관하게 항상 페이지 영역 바로 위 오른쪽에 고정된 텍스트로 보여준다
+   (PdfViewerPanel.tsx의 .pdf-viewer-header와 .pdf-viewer-stage 사이). */
+.pdf-viewer-page-indicator-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 10px 0;
+  flex-shrink: 0;
+}
+
+.pdf-viewer-page-indicator {
   font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -180,7 +169,14 @@
 
 .pdf-viewer-filmstrip-row {
   display: flex;
-  align-items: center;
+  /* 버그 수정(2026-09, "</>가 미리보기(썸네일 이미지) 중앙이 아니라 살짝 아래에 있어
+     보임"): align-items:center였을 때는 이 nav 버튼이 "썸네일 이미지 + 그 아래 페이지
+     번호 텍스트"를 합친 그룹 전체의 세로 중앙에 맞춰졌다 — 실제로 사용자 눈에 "미리보기"로
+     보이는 건 페이지 번호 텍스트를 뺀 이미지 박스뿐이라, 그 그룹 중앙은 이미지 박스
+     중앙보다 살짝 아래에 있다(텍스트 줄 높이만큼). flex-start로 바꾸고 버튼 쪽에
+     이미지 박스 중앙에 맞춘 고정 margin-top을 주면(.pdf-viewer-filmstrip-nav 참고)
+     "미리보기 이미지 자체"의 중앙에 정확히 맞는다. */
+  align-items: flex-start;
   gap: 4px;
   height: 110px;
   flex-shrink: 0;
@@ -192,6 +188,11 @@
   width: 22px;
   height: 22px;
   flex-shrink: 0;
+  /* .pdf-viewer-thumb이 padding:2px + justify-content:flex-start로 썸네일 이미지 박스를
+     이 행의 콘텐츠 박스 맨 위(2px)에 붙여두므로, 이미지 박스(THUMB_HEIGHT=84px)의
+     세로 중앙은 위에서 2 + 84/2 = 44px 지점이다. 이 버튼(22px)의 중앙도 같은 44px
+     지점에 오도록 margin-top: 44 - 22/2 = 33px. */
+  margin-top: 33px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -237,7 +238,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  /* 버그 수정(2026-09): center였을 때는 "이미지 박스 + 페이지 번호" 그룹 전체가
+     이 버튼(필름스트립 행 콘텐츠 높이 전체) 안에서 세로로 가운데 놓여, 옆의 </> 버튼이
+     기준으로 삼는 "이미지 박스만의 중앙"과 어긋났다. flex-start로 위쪽(padding 2px
+     지점)에 고정해야 .pdf-viewer-filmstrip-nav의 margin-top 계산과 같은 기준점을
+     공유한다. */
+  justify-content: flex-start;
   gap: 3px;
   border: none;
   background: transparent;
@@ -253,6 +259,13 @@
   border: 1px solid var(--color-border);
   background: var(--color-fill);
   overflow: hidden;
+}
+
+/* 요구사항(2026-09): 필기(오버레이 객체/하이라이트)가 저장된 페이지는 미리보기 겉테두리를
+   빨간색으로 표시한다(PdfViewerPanel.tsx의 isPageAnnotated). border-width는 기존과
+   동일(1px)하게 두고 색만 바꿔 레이아웃이 흔들리지 않게 한다. */
+.pdf-viewer-thumb-box.has-annotations {
+  border-color: var(--color-danger);
 }
 
 .pdf-viewer-thumb-box img {

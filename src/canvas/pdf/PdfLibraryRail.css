@@ -1,18 +1,28 @@
-/* PDF Library 레일(Phase 4) — 좌측 사이드바 바로 오른쪽, 돋보기(CanvasSearch) 토글
-   바로 아래에 세로로 배치된다. canvas-search와 같은 관례를 그대로 따른다: position
-   fixed + --file-tree-width 변수를 따라가며(사이드바 접힘에 맞춰 이동), Canvas/world
-   좌표와는 완전히 무관하다(v2/v3 확정 — Frame/PDF overlap 회피 로직 자체가 필요 없음). */
+/* PDF Library 레일(Phase 4, 2026-09-07 개정) — 좌측 사이드바 바로 오른쪽, 돋보기
+   (CanvasSearch) 토글 바로 아래에 배치된다. canvas-search와 같은 관례를 그대로
+   따른다: position fixed + --file-tree-width 변수를 따라가며(사이드바 접힘에 맞춰
+   이동), Canvas/world 좌표와는 완전히 무관하다(v2/v3 확정 — Frame/PDF overlap 회피
+   로직 자체가 필요 없음).
+   [2026-09-07 개정] 예전에는 '+' 가져오기 버튼 아래 PDF마다 하나씩 아이콘이 세로로
+   쌓이는 목록이었다. 이제는 PDF 아이콘 하나만 남기고(클릭 = 바로 가져오기), 그
+   아이콘을 hover하면 오른쪽에 '새로 가져오기' + 저장된 PDF 제목 목록이 뜨는
+   플라이아웃으로 통합했다 — 목록이 길어져도 레일 세로 길이가 늘어나지 않는다. */
 .pdf-library-rail {
   position: fixed;
   /* 12px(canvas-search의 top) + 34px(토글 높이) + 8px 여백 */
   top: 54px;
   left: calc(var(--file-tree-width, 240px) + 12px);
   z-index: 10;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
   transition: left 0.15s ease;
+}
+
+/* hover 판정 기준 컨테이너. 버튼과 플라이아웃 둘 다 이 안에 있어야 마우스가 버튼→
+   플라이아웃으로 옮겨가도(둘 사이에 8px 틈이 있어도) 계속 "안"으로 인식된다 —
+   mouseenter/leave는 버블링하지 않고 실제 서브트리 이탈 여부만 보므로, CSS
+   `:hover`(Toolbar.tsx 텍스트 메뉴 방식)와 달리 자식 요소가 시각적으로 떨어져
+   있어도 문제없다(PdfLibraryRail.tsx의 onMouseEnter/onMouseLeave 참고). */
+.pdf-library-icon-menu {
+  position: relative;
 }
 
 .pdf-library-add {
@@ -35,46 +45,91 @@
   color: var(--color-text);
 }
 
-.pdf-library-list {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  max-height: calc(100vh - 110px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 2px 1px;
-}
-
-.pdf-library-item {
-  width: 34px;
-  height: 34px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  padding: 0;
-}
-
-.pdf-library-item:hover {
-  color: var(--color-text);
-  background: var(--color-surface-hover);
-}
-
-.pdf-library-item.is-open {
+/* 지금 열려 있는 PDF가 이 Page의 라이브러리에 속해 있음을 알려주는 상태 —
+   canvas-search-toggle.is-active와 같은 톤. */
+.pdf-library-add.is-open {
   border-color: var(--color-border-strong);
   background: var(--color-accent-soft);
   color: var(--color-text);
 }
 
-.pdf-library-rename-wrap {
-  width: 34px;
+/* '새로 가져오기' + 저장된 PDF 목록 플라이아웃. canvas-toolbar-text-flyout과 같은
+   카드 톤(패널 배경/보더/그림자)이지만, 레일이 화면 왼쪽에 붙어 있어 아래로 펼치면
+   캔버스 검색 패널과 겹치기 쉬우므로 오른쪽으로 펼친다.
+   [2026-09-07 수정] 버튼과 8px 틈을 두면 mouseenter/leave는 실제 화면 좌표 기준
+   hit-test라 그 틈에서 아무 것도 hover되지 않는 순간이 생겨 hoverOpen이 풀려버린다
+   (Toolbar.tsx 텍스트 플라이아웃 주석과 같은 문제 — DOM상 자식이어도 시각적으로
+   떨어져 있으면 소용없다). 그래서 gap 대신 버튼과 살짝 겹치도록 음수 margin을 준다. */
+.pdf-library-flyout {
+  position: absolute;
+  top: 0;
+  left: 100%;
+  margin-left: -4px;
+  z-index: 10001;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 168px;
+  max-width: 240px;
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+  font-family: system-ui, sans-serif;
+}
+
+.pdf-library-flyout-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.pdf-library-flyout-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.pdf-library-flyout-item.is-open {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.pdf-library-flyout-item svg {
   flex-shrink: 0;
+}
+
+.pdf-library-flyout-item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-library-flyout-divider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.pdf-library-flyout-rename-wrap {
+  padding: 2px 4px;
+}
+
+.pdf-library-flyout-rename-wrap .pdf-library-rename-input {
+  text-align: left;
+  padding: 6px 8px;
 }
 
 .pdf-library-rename-input {
@@ -83,36 +138,16 @@
   font: inherit;
   font-size: var(--font-size-xs);
   color: inherit;
-  text-align: center;
-  padding: 4px 2px;
   border: none;
   border-radius: var(--radius-sm);
   background: var(--color-fill);
   box-shadow: inset 0 0 0 1.5px var(--color-border-strong);
 }
 
-/* 마우스 오버 시 이름을 보여주는 말풍선(v2 확정: "hover 시 이름을 보여주며"). 스크롤되는
-   .pdf-library-list의 자손이 아니라 이 컴포넌트가 직접 position:fixed로 뷰포트 기준
-   좌표에 그린다 — 그래야 목록이 길어져 스크롤이 생겨도 툴팁이 잘리지 않는다. */
-.pdf-library-tooltip {
-  position: fixed;
-  transform: translateY(-50%);
-  z-index: 10002;
-  max-width: 240px;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-panel);
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-
 .pdf-library-error {
+  position: absolute;
+  top: 40px;
+  left: 0;
   max-width: 160px;
   padding: 6px 8px;
   border-radius: var(--radius-sm);

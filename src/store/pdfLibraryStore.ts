@@ -7,6 +7,7 @@ import {
   deleteRasterCacheForPdf,
   getLibraryRecordsForPage,
   getOverlay,
+  getOverlayPageIndexesForPdf as dbGetOverlayPageIndexesForPdf,
   getRasterCache,
   putLibraryRecord,
   putOverlay,
@@ -234,4 +235,12 @@ export function savePageOverlay(overlay: PdfPageOverlay): Promise<void> {
 
 export function removePageOverlay(pdfId: string, pageIndex: number): Promise<void> {
   return deleteOverlay(`${pdfId}:${pageIndex}`);
+}
+
+/** 요구사항(2026-09, 필름스트립 빨간 테두리): 이 pdfId에서 실제로 필기가 저장된
+ * 페이지 인덱스 목록. storage/pdfLibraryDb.ts의 저수준 함수를 그대로 얇게 감싼다 —
+ * 위 loadPageOverlay/savePageOverlay/removePageOverlay와 같은 계층(overlay를
+ * "통째로 읽고 쓰는" 낮은 수준)에 둔다. */
+export function getOverlayPageIndexesForPdf(pdfId: string): Promise<number[]> {
+  return dbGetOverlayPageIndexesForPdf(pdfId);
 }

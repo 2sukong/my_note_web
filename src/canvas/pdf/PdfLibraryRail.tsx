@@ -56,20 +56,22 @@ interface ContextMenuState {
   y: number;
 }
 
-interface HoverTooltipState {
-  id: string;
-  top: number;
-  left: number;
-}
-
 /**
- * 좌측 사이드바 바로 오른쪽, 돋보기(CanvasSearch) 토글 아래에 세로로 배치되는 PDF
- * Library 레일(v2/v3 §PDF Library). 데이터 소속은 **Page 단위**라(v3 §1-1 확정) 지금
- * 열려 있는 Page에 종속된 PDF만 보여준다 — Page를 전환하면 목록도 그 Page 것으로 바뀐다.
+ * 좌측 사이드바 바로 오른쪽, 돋보기(CanvasSearch) 토글 아래에 배치되는 PDF Library
+ * 레일(v2/v3 §PDF Library). 데이터 소속은 **Page 단위**라(v3 §1-1 확정) 지금 열려
+ * 있는 Page에 종속된 PDF만 보여준다 — Page를 전환하면 목록도 그 Page 것으로 바뀐다.
  *
  * PDF 자체는 더 이상 Canvas 객체가 아니므로(v3 §1-2 확정) 선택/라벨 UI가 없다 — 클릭하면
  * pdfViewerStore를 통해 Viewer가 열릴 뿐이고, 이 레일 자체의 책임은 "목록 표시 + 가져오기
  * + 이름변경/삭제"로 끝난다. 실제 Viewer 패널(페이지 탐색 등)은 Phase 5에서 별도로 만든다.
+ *
+ * [2026-09-07 개정, 요구사항] PDF마다 아이콘 하나씩 세로로 쌓이던 목록을 없애고, 아이콘
+ * 하나로 통합했다: 클릭하면 예전 '+' 버튼과 동일하게 바로 파일 선택 창이 뜨고, hover하면
+ * '새로 가져오기' + 저장된 PDF 제목 목록이 오른쪽에 플라이아웃으로 뜬다. 이름변경/삭제는
+ * 목록 항목을 우클릭하는 기존 방식 그대로 유지한다. 플라이아웃은 순수 CSS :hover가 아니라
+ * JS 상태(flyoutOpen)로 열고 닫는다 — 이름변경 입력창이나 우클릭 메뉴가 떠 있는 동안
+ * 마우스가 아이콘/플라이아웃 밖으로 나가도 플라이아웃이 사라지면 안 되기 때문이다
+ * (renamingId/contextMenu가 있으면 hover 여부와 무관하게 계속 보이도록 OR로 묶는다).
  */
 export function PdfLibraryRail() {
   const currentPageId = useFileTreeStore((s) => s.currentPageId);
@@ -85,8 +87,10 @@ export function PdfLibraryRail() {
   const menuRef = useRef<HTMLDivElement>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [hover, setHover] = useState<HoverTooltipState | null>(null);
+  const [hoverOpen, setHoverOpen] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+
+  const flyoutOpen = hoverOpen || renamingId !== null || contextMenu !== null;
 
   // Page를 전환하면 그 Page에 속한 PDF 목록을 새로 불러온다. CanvasSearch.tsx가
   // currentPageId 변경 시 검색 패널을 닫는 것과 같은 이유로, 다른 Page의 PDF를 보여주던
@@ -97,6 +101,7 @@ export function PdfLibraryRail() {
     usePdfViewerStore.getState().closeViewer();
     setRenamingId(null);
     setContextMenu(null);
+    setHoverOpen(false);
   }, [currentPageId, loadForPage]);
 
   useEffect(() => {
@@ -137,71 +142,78 @@ export function PdfLibraryRail() {
     void removePdf(id);
   };
 
-  const hoveredEntry = hover ? entries.find((e) => e.id === hover.id) : undefined;
-
   return (
     <div className="pdf-library-rail">
-      <button
-        type="button"
-        className="pdf-library-add"
-        onClick={() => fileInputRef.current?.click()}
-        title="PDF 가져오기"
-        aria-label="PDF 가져오기"
+      {/* 요구사항(2026-09-07): 우클릭하면 Chrome 기본 우클릭 메뉴가 떠서 우리 플라이아웃을
+          가리는 문제가 있었다 — 이 아이콘/버튼 자체엔 우클릭으로 할 일이 없으므로
+          (기존 PDF 각 항목의 이름변경/삭제 우클릭 메뉴와는 별개) onContextMenu를
+          preventDefault해서 브라우저 기본 메뉴 자체가 뜨지 않게 막는다. */}
+      <div
+        className="pdf-library-icon-menu"
+        onMouseEnter={() => setHoverOpen(true)}
+        onMouseLeave={() => setHoverOpen(false)}
+        onContextMenu={(e) => e.preventDefault()}
       >
-        <PlusIcon size={13} />
-      </button>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={PDF_ACCEPT}
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
+        <button
+          type="button"
+          className={openPdfId ? 'pdf-library-add is-open' : 'pdf-library-add'}
+          onClick={() => fileInputRef.current?.click()}
+          title="PDF 가져오기"
+          aria-label="PDF 가져오기 / 저장된 PDF 목록 보기"
+        >
+          <PdfFileIcon size={16} />
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={PDF_ACCEPT}
+          style={{ display: 'none' }}
+          onChange={handleFileChange}
+        />
 
-      {entries.length > 0 && (
-        <div className="pdf-library-list">
-          {entries.map((entry) =>
-            renamingId === entry.id ? (
-              <div key={entry.id} className="pdf-library-rename-wrap">
-                <RenameInput
-                  initial={entry.name}
-                  onCommit={(name) => {
-                    setRenamingId(null);
-                    if (name !== entry.name) void renamePdf(entry.id, name);
-                  }}
-                  onCancel={() => setRenamingId(null)}
-                />
-              </div>
-            ) : (
-              <button
-                key={entry.id}
-                type="button"
-                className={entry.id === openPdfId ? 'pdf-library-item is-open' : 'pdf-library-item'}
-                onClick={() => openViewer(entry.id, entry.lastViewedPageIndex ?? 0)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setHover(null);
-                  setContextMenu({ id: entry.id, x: e.clientX, y: e.clientY });
-                }}
-                onMouseEnter={(e) => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setHover({ id: entry.id, top: rect.top + rect.height / 2, left: rect.right + 8 });
-                }}
-                onMouseLeave={() => setHover((h) => (h?.id === entry.id ? null : h))}
-                aria-label={entry.name}
-              >
-                <PdfFileIcon size={17} />
-              </button>
-            ),
-          )}
-        </div>
-      )}
-
-      {hoveredEntry && hover && !renamingId && (
-        <div className="pdf-library-tooltip" style={{ top: hover.top, left: hover.left }}>
-          {hoveredEntry.name}
-        </div>
-      )}
+        {flyoutOpen && (
+          <div className="pdf-library-flyout">
+            <button type="button" className="pdf-library-flyout-item" onClick={() => fileInputRef.current?.click()}>
+              <PlusIcon size={13} />
+              <span>새로 가져오기</span>
+            </button>
+            {entries.length > 0 && (
+              <>
+                <div className="pdf-library-flyout-divider" />
+                {entries.map((entry) =>
+                  renamingId === entry.id ? (
+                    <div key={entry.id} className="pdf-library-flyout-rename-wrap">
+                      <RenameInput
+                        initial={entry.name}
+                        onCommit={(name) => {
+                          setRenamingId(null);
+                          if (name !== entry.name) void renamePdf(entry.id, name);
+                        }}
+                        onCancel={() => setRenamingId(null)}
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      className={entry.id === openPdfId ? 'pdf-library-flyout-item is-open' : 'pdf-library-flyout-item'}
+                      onClick={() => openViewer(entry.id, entry.lastViewedPageIndex ?? 0)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({ id: entry.id, x: e.clientX, y: e.clientY });
+                      }}
+                      title={entry.name}
+                    >
+                      <PdfFileIcon size={13} />
+                      <span className="pdf-library-flyout-item-name">{entry.name}</span>
+                    </button>
+                  ),
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {importError && <div className="pdf-library-error">{importError}</div>}
 

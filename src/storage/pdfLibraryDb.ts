@@ -14,25 +14,34 @@ import type { PdfLibraryRecord, PdfPageOverlay, PdfPageRasterCache } from '../ty
 
 interface PdfLibraryDBSchema extends DBSchema {
   library: { key: string; value: PdfLibraryRecord; indexes: { pageId: string } };
-  overlays: { key: string; value: PdfPageOverlay };
+  overlays: { key: string; value: PdfPageOverlay; indexes: { pdfId: string } };
   rasterCache: { key: string; value: PdfPageRasterCache; indexes: { pdfId: string } };
 }
 
 const DB_NAME = 'my-note-web-pdf-library';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // v2(2026-09): overlays 스토어에 pdfId 인덱스 추가(필름스트립 빨간
+// 테두리 표시용 — 특정 PDF의 필기 있는 페이지 목록을 pageCount만큼 개별 get() 없이
+// 인덱스 한 번으로 조회하기 위함, § getOverlayPageIndexesForPdf 참고).
 
 let dbPromise: Promise<IDBPDatabase<PdfLibraryDBSchema>> | null = null;
 
 function getDB(): Promise<IDBPDatabase<PdfLibraryDBSchema>> {
   if (!dbPromise) {
     dbPromise = openDB<PdfLibraryDBSchema>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
+      upgrade(db, _oldVersion, _newVersion, transaction) {
         if (!db.objectStoreNames.contains('library')) {
           const store = db.createObjectStore('library', { keyPath: 'id' });
           store.createIndex('pageId', 'pageId');
         }
-        if (!db.objectStoreNames.contains('overlays')) {
-          db.createObjectStore('overlays', { keyPath: 'id' });
+        // v1→v2: 이미 'overlays' 스토어가 있는 기존 사용자 DB에는 새 인덱스만 추가하고,
+        // 완전히 새로 만드는 경우엔 스토어 생성과 동시에 인덱스를 건다 — 둘 다
+        // PdfPageOverlay.pdfId 필드(스토어 생성 이후로 스키마 변경 없음)를 그대로 인덱싱하므로
+        // 기존 레코드에 대한 별도 마이그레이션(데이터 백필)이 필요 없다.
+        const overlaysStore = db.objectStoreNames.contains('overlays')
+          ? transaction.objectStore('overlays')
+          : db.createObjectStore('overlays', { keyPath: 'id' });
+        if (!overlaysStore.indexNames.contains('pdfId')) {
+          overlaysStore.createIndex('pdfId', 'pdfId');
         }
         if (!db.objectStoreNames.contains('rasterCache')) {
           const store = db.createObjectStore('rasterCache', { keyPath: 'id' });
@@ -89,6 +98,19 @@ export async function deleteAllOverlaysForPdf(pdfId: string, pageCount: number):
     Array.from({ length: pageCount }, (_, pageIndex) => tx.store.delete(`${pdfId}:${pageIndex}`)),
   );
   await tx.done;
+}
+
+/** 요구사항(2026-09, 필름스트립 빨간 테두리): 이 pdfId에 속한 페이지 중 실제로 필기
+ * 레코드가 있는 페이지 인덱스만 뽑아온다. overlay id가 항상 `${pdfId}:${pageIndex}`
+ * 형태(위 deleteAllOverlaysForPdf와 동일 전제)이므로, pdfId 인덱스로 해당하는 기본 키만
+ * 가져와(getAllKeysFromIndex — 값 전체가 아니라 키만 읽으므로 objects/pageHighlights
+ * payload를 불필요하게 불러오지 않는다) ':' 뒤의 pageIndex만 파싱한다. */
+export async function getOverlayPageIndexesForPdf(pdfId: string): Promise<number[]> {
+  const db = await getDB();
+  const keys = await db.getAllKeysFromIndex('overlays', 'pdfId', pdfId);
+  return keys
+    .map((key) => Number(String(key).slice(pdfId.length + 1)))
+    .filter((n) => Number.isInteger(n) && n >= 0);
 }
 
 // ── raster cache (파생 데이터 — v3 §1-4, 전체가 아니라 소수 페이지만 캐싱) ──────

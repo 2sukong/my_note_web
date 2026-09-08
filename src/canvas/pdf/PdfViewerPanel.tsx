@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { usePdfViewerStore } from '../../store/pdfViewerStore';
-import { getPdfPageRasterUrl, releaseRasterUrlsForPdf, usePdfLibraryStore } from '../../store/pdfLibraryStore';
+import {
+  getOverlayPageIndexesForPdf,
+  getPdfPageRasterUrl,
+  releaseRasterUrlsForPdf,
+  usePdfLibraryStore,
+} from '../../store/pdfLibraryStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import type { PdfLibraryRecord } from '../../types/pdf';
@@ -40,11 +45,15 @@ function PdfThumb({
   record,
   pageIndex,
   isActive,
+  hasAnnotations,
   onSelect,
 }: {
   record: PdfLibraryRecord;
   pageIndex: number;
   isActive: boolean;
+  /** 요구사항(2026-09): 이 페이지에 저장된 필기(오버레이 객체/하이라이트)가 있으면
+   * 미리보기 테두리를 빨간색으로 칠한다(§ PdfViewerPanel의 annotatedPageIndexes). */
+  hasAnnotations: boolean;
   onSelect: (pageIndex: number) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
@@ -71,13 +80,15 @@ function PdfThumb({
     };
   }, [record, pageIndex]);
 
+  const boxClassName = hasAnnotations ? 'pdf-viewer-thumb-box has-annotations' : 'pdf-viewer-thumb-box';
+
   return (
     <button
       type="button"
       className={isActive ? 'pdf-viewer-thumb is-active' : 'pdf-viewer-thumb'}
       onClick={() => onSelect(pageIndex)}
     >
-      <span className="pdf-viewer-thumb-box" style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}>
+      <span className={boxClassName} style={{ width: THUMB_WIDTH, height: THUMB_HEIGHT }}>
         {url && <img src={url} alt="" draggable={false} />}
         {failed && <span className="pdf-viewer-thumb-error">!</span>}
       </span>
@@ -122,6 +133,12 @@ export function PdfViewerPanel() {
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
+  // 요구사항(2026-09, 필름스트립 빨간 테두리): "지금 보고 있지 않은" 페이지들 중 필기가
+  // 저장된 페이지 인덱스 집합 — 아래 loadForPage 효과가 페이지 전환마다(이전 페이지
+  // flush가 끝난 뒤) 다시 조회해 채운다. "지금 보고 있는" 페이지는 이 집합이 아니라
+  // pdfOverlayStore의 실시간 objects/pageHighlights로 바로 판정한다(디바운스 저장을
+  // 기다리지 않고 타이핑/그리기 즉시 테두리가 반응하도록).
+  const [annotatedPageIndexes, setAnnotatedPageIndexes] = useState<Set<number>>(new Set());
   const [stagePage, setStagePage] = useState<{ url: string; width: number; height: number } | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
   const [stageLoading, setStageLoading] = useState(false);
@@ -166,10 +183,23 @@ export function PdfViewerPanel() {
 
   // Phase 6: 지금 보고 있는 페이지가 바뀔 때마다(다른 PDF를 열거나, 페이지를 넘기거나)
   // 그 페이지의 저장된 오버레이(필기)를 불러온다.
+  //
+  // 요구사항(2026-09, 필름스트립 빨간 테두리): loadForPage는 새 페이지를 불러오기 전에
+  // 먼저 "이전 페이지"의 대기 중인 저장을 flush한다(pdfOverlayStore.ts § flushPendingSave)
+  // — 그 완료를 기다린 뒤 annotatedPageIndexes를 다시 조회하면, 방금 막 필기하고 떠난
+  // 페이지의 빨간 테두리 여부도 곧바로 최신 상태로 반영된다.
   useEffect(() => {
     if (!recordId) return;
-    void usePdfOverlayStore.getState().loadForPage(recordId, currentPageIndex);
-    usePdfOverlaySelectionStore.getState().clear();
+    let cancelled = false;
+    void (async () => {
+      await usePdfOverlayStore.getState().loadForPage(recordId, currentPageIndex);
+      usePdfOverlaySelectionStore.getState().clear();
+      const indexes = await getOverlayPageIndexesForPdf(recordId);
+      if (!cancelled) setAnnotatedPageIndexes(new Set(indexes));
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [recordId, currentPageIndex]);
 
   // 진도 확인용: 보고 있는 페이지가 바뀔 때마다 Library 레코드에 기억해둔다 — 다음에 이
@@ -221,12 +251,22 @@ export function PdfViewerPanel() {
     setVisibleRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }, [record]);
 
-  // record가 바뀌거나(다른 PDF) 패널 폭이 바뀌면(리사이즈로 필름스트립이 보여줄 수 있는
-  // 개수 자체가 달라짐) 보이는 범위를 다시 계산한다. recomputeVisibleRange 자체가 이미
-  // record에 의존하는 useCallback이라, 여기 deps는 그 함수 자체 + width만 있으면 된다.
+  // 버그 수정(2026-09, "처음 열면 필름스트립이 안 뜨고 </> 를 눌러야 나타남"): 이전엔
+  // width(store 값)에만 의존해 재계산했는데, 패널이 열리는 CSS transition(entered
+  // 상태) 동안 store의 width 자체는 안 바뀌면서 실제 DOM(filmstripRef)의 clientWidth만
+  // 0→실제값으로 바뀐다 — recomputeVisibleRange가 그 순간을 못 잡아 visibleRange가
+  // {0,0}에 머물렀다(필름스트립 스크롤 이벤트가 한 번이라도 발생해야, 즉 </> 클릭으로
+  // scrollBy가 일어나야만 recomputeVisibleRange가 재실행됐던 것). ResizeObserver로
+  // filmstripRef 엘리먼트 자신의 실제 크기 변화를 직접 관찰하면 최초 마운트 시 크기
+  // (관찰 시작 시 한 번 즉시 콜백됨), transition 도중의 폭 변화, 리사이즈 핸들 드래그를
+  // 전부 한 메커니즘으로 커버해 이런 시점 불일치 자체가 생기지 않는다.
   useEffect(() => {
-    recomputeVisibleRange();
-  }, [recomputeVisibleRange, width]);
+    const el = filmstripRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => recomputeVisibleRange());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [recomputeVisibleRange]);
 
   // Phase 6: 형광펜 등 오버레이 도구는 이 훅이 stagePage가 없을 때(pageWidth/height<=0)
   // 스스로 아무 것도 하지 않으므로, 다른 훅들과 마찬가지로 항상 호출해도 안전하다(Hooks
@@ -237,6 +277,12 @@ export function PdfViewerPanel() {
   useDrawOverlayShapeTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   useOverlayImagePlacementTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   usePdfViewerZoom(stageRef, stagePage?.width ?? 0);
+
+  // 요구사항(2026-09, 필름스트립 빨간 테두리): "지금 보고 있는" 페이지는 디바운스 저장을
+  // 기다리지 않고 pdfOverlayStore의 메모리 상태를 그대로 읽어 즉시 반영한다(§ 위
+  // annotatedPageIndexes 선언부 주석).
+  const currentOverlayObjectCount = usePdfOverlayStore((s) => Object.keys(s.objects).length);
+  const currentOverlayHighlightCount = usePdfOverlayStore((s) => s.pageHighlights.length);
 
   // Phase 6(이미지, 2026-08): Canvas.tsx의 fileInputRef 효과와 완전히 같은 패턴 —
   // React StrictMode 이중 마운트에서도 "첫 실행"을 기준값(baseline)과의 비교로 판정해서
@@ -312,6 +358,11 @@ export function PdfViewerPanel() {
     filmstripRef.current?.scrollBy({ left: direction * (filmstripRef.current?.clientWidth ?? 0), behavior: 'smooth' });
   };
 
+  const isPageAnnotated = (pageIndex: number): boolean =>
+    pageIndex === currentPageIndex
+      ? currentOverlayObjectCount > 0 || currentOverlayHighlightCount > 0
+      : annotatedPageIndexes.has(pageIndex);
+
   const onResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     resizeRef.current = { pointerId: e.pointerId, startX: e.clientX, startWidth: width };
@@ -369,6 +420,15 @@ export function PdfViewerPanel() {
         onChange={handleOverlayImageFileInputChange}
       />
 
+      {/* 요구사항(2026-09): 기존 "Ctrl+스크롤로 확대했을 때만" 보이던
+          .pdf-viewer-page-badge(줌 로직에 종속)를 삭제하고, 줌 여부와 무관하게 항상
+          페이지 영역 바로 위 오른쪽에 현재 페이지/전체 페이지 수를 보여준다. */}
+      <div className="pdf-viewer-page-indicator-row">
+        <span className="pdf-viewer-page-indicator">
+          {currentPageIndex + 1} / {panelRecord.pageCount}
+        </span>
+      </div>
+
       <div className="pdf-viewer-stage" ref={stageRef}>
         {stagePage && (
           <div
@@ -400,17 +460,6 @@ export function PdfViewerPanel() {
             <PdfOverlayObjectsLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayShapeDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayTextDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
-          </div>
-        )}
-        {/* 요구사항(2026-09, 확대 중 페이지 번호 표시): pageZoom>1(실제로 확대된
-            상태)일 때만 보여준다 — 기본 배율(1)에서는 필름스트립의 강조된 썸네일로도
-            충분히 알 수 있어 배지가 그저 중복/방해가 된다. .pdf-viewer-page 안이 아니라
-            .pdf-viewer-stage의 직계 자식으로 둬서(CSS 참고) transform:scale(pageZoom)의
-            영향을 받지 않고(배지 자체가 확대되지 않고) 스크롤/패닝 중에도 stage 상단에
-            고정되어 보인다. */}
-        {stagePage && pageZoom > 1 && (
-          <div className="pdf-viewer-page-badge">
-            {currentPageIndex + 1} / {panelRecord.pageCount}
           </div>
         )}
         {!stagePage && stageError && (
@@ -447,6 +496,7 @@ export function PdfViewerPanel() {
                   record={panelRecord}
                   pageIndex={pageIndex}
                   isActive={pageIndex === currentPageIndex}
+                  hasAnnotations={isPageAnnotated(pageIndex)}
                   onSelect={setCurrentPageIndex}
                 />
               </div>
