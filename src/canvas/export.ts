@@ -81,7 +81,16 @@ async function rasterizeFrame(frame: FrameObject, format: 'png' | 'jpeg'): Promi
     style: {
       transform: `translate(${-frame.x}px, ${-frame.y}px)`,
       transformOrigin: '0 0',
-      overflow: 'hidden',
+      // 주의(버그 수정: 프레임 내보내기가 항상 백지로 나오던 문제의 원인): 여기 overflow:'hidden'을
+      // 절대 넣지 말 것. CSS에서 overflow 클리핑은 transform이 적용되기 "이전"의 로컬 박스
+      // 기준으로 계산된다 — canvas-world는 위 transform으로 화면상 위치만 옮겨질 뿐, 그
+      // 자신의 로컬 박스는 여전히 (0,0)~(width,height)(=frame 크기)이므로, 그보다 훨씬 큰
+      // world 좌표(예: frame.x=700일 때 objectId의 x=760)에 있는 자식들은 로컬 박스 밖으로
+      // 벗어나 overflow:hidden에 의해 transform이 적용되기도 전에 통째로 잘려나가 버린다
+      // (그 결과 프레임 자신조차 백지로 내보내졌다). 최종 출력 크기는 어차피 아래 width/
+      // height와 toPng/toJpeg가 만드는 svg의 width/height(viewBox)로 이미 고정되므로,
+      // 여기서 별도로 overflow를 잘라낼 필요가 없다 — 그 svg 자체가 이미 정확한 크기의
+      // 캔버스로 래스터라이즈되면서 자연스럽게 그 경계 밖은 그려지지 않는다.
     },
   };
 
