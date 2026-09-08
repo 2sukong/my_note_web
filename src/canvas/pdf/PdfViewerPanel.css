@@ -109,7 +109,9 @@
    (PdfViewerPanel.tsx의 .pdf-viewer-header와 .pdf-viewer-stage 사이). */
 .pdf-viewer-page-indicator-row {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 4px;
   padding: 6px 10px 0;
   flex-shrink: 0;
 }
@@ -119,6 +121,37 @@
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* 요구사항(2026-09, PDF 이전/다음 페이지 화살표): 필름스트립에서 원하는 썸네일을
+   직접 클릭하지 않아도, 페이지 표시기 옆 화살표로 바로 앞/뒤 페이지로 넘어갈 수
+   있게 한다. 문서의 처음/끝 페이지에서는 그 방향 버튼을 비활성화해 더 이상 갈 곳이
+   없음을 알린다(.pdf-viewer-filmstrip-nav보다 살짝 작게 — 이 줄 자체가 보조 정보라
+   너무 크게 강조하지 않기 위함). */
+.pdf-viewer-page-nav {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.pdf-viewer-page-nav:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
+}
+
+.pdf-viewer-page-nav:disabled {
+  color: var(--color-text-muted);
+  opacity: 0.35;
+  cursor: default;
 }
 
 /* Phase 6: 페이지 래스터 + 오버레이(형광펜 등)를 함께 담는 래퍼. width/height를

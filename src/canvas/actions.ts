@@ -360,31 +360,86 @@ export function findFrameAt(worldX: number, worldY: number): string | null {
  * imageStore.retainImage로 참조 카운트를 올려서, 원본이나 사본 중 하나를 지워도
  * 나머지가 멀쩡하게 남아있도록 한다.
  */
-export function pasteClipboardObjects(): string[] {
-  const { objects: clipboard, bumpPasteCount } = useClipboardStore.getState();
-  if (clipboard.length === 0) return [];
-
-  const step = bumpPasteCount();
-  const offset = PASTE_OFFSET_STEP * step;
+/**
+ * Phase 7 / 교차-오리진 붙여넣기 공통 로직: 붙여넣을 객체 배열을 실제로 캔버스에
+ * 추가한다(ID 재발급, zIndex 갱신, 이미지 refcount, 선택 상태 설정) — pasteClipboardObjects와
+ * pasteExternalObjects가 이 부분을 그대로 공유한다. computePosition만 호출부(같은 세션
+ * 붙여넣기 vs 다른 브라우저/오리진에서 온 붙여넣기)마다 다르다 — 전자는 원본 좌표에서
+ * 조금씩 어긋난 위치, 후자는 원본 좌표계 자체가 무의미하므로(전혀 다른 세션의 world
+ * 좌표) 현재 화면 중앙 기준이다(pasteExternalObjects 참고). resolveFrameId가 true면
+ * 각 객체의 최종 위치에 실제로 Frame이 있는지 새로 검사해 frameId를 갱신한다
+ * (교차-오리진 붙여넣기 전용 — 원본 세션의 frameId는 이 세션에 존재하지도 않는 Frame을
+ * 가리킬 수 있으므로 그대로 믿을 수 없다. 같은 세션 붙여넣기는 원본 frameId를 그대로
+ * 물려받는 기존 동작을 유지하기 위해 false로 호출한다).
+ */
+function insertPastedObjects(
+  sourceObjects: CanvasObject[],
+  computePosition: (original: CanvasObject) => { x: number; y: number },
+  resolveFrameId: boolean,
+): string[] {
   const t = Date.now();
   let z = nextZIndex();
   const newIds: string[] = [];
 
-  const pasted: CanvasObject[] = clipboard.map((original) => {
+  const pasted: CanvasObject[] = sourceObjects.map((original) => {
     const clone = structuredClone(original) as CanvasObject;
     const id = crypto.randomUUID();
     newIds.push(id);
     clone.id = id;
-    clone.x = original.x + offset;
-    clone.y = original.y + offset;
+    const { x, y } = computePosition(original);
+    clone.x = x;
+    clone.y = y;
     clone.zIndex = z++;
     clone.createdAt = t;
     clone.updatedAt = t;
     if (clone.type === 'image' && clone.imageId) retainImage(clone.imageId);
+    if (resolveFrameId && 'frameId' in clone) {
+      clone.frameId = findFrameAt(x, y);
+    }
     return clone;
   });
 
   useObjectsStore.getState().addObjects(pasted);
   useInteractionStore.getState().setSelection(newIds);
   return newIds;
+}
+
+export function pasteClipboardObjects(): string[] {
+  const { objects: clipboard, bumpPasteCount } = useClipboardStore.getState();
+  if (clipboard.length === 0) return [];
+
+  const step = bumpPasteCount();
+  const offset = PASTE_OFFSET_STEP * step;
+  return insertPastedObjects(
+    clipboard,
+    (original) => ({ x: original.x + offset, y: original.y + offset }),
+    false,
+  );
+}
+
+/**
+ * 요구사항(2026-09, 다른 URL의 my_note_web 사이에서도 텍스트 상자/Frame Ctrl+C/V):
+ * OS 시스템 클립보드에서 읽어온(반드시 우리 앱이 직접 만든 서명이 붙은 JSON이어야
+ * 함 — 호출부인 canvas/interaction/useClipboardShortcuts.ts 참고) 객체 배열을 캔버스에
+ * 붙여넣는다. clipboardStore(같은 브라우저 탭 안에서만 유효한 메모리 전용 저장소)를
+ * 쓰는 pasteClipboardObjects와 달리, 완전히 다른 브라우저 세션(다른 오리진 포함)에서
+ * 복사된 객체를 대상으로 한다 — 그래서 원본 x/y를 그대로 믿을 수 없다(원본 세션의
+ * pan/zoom과 무관한 좌표계). 대신 복사된 객체들의 bounding box 중심을 지금 이
+ * 화면(viewport)의 중심으로 옮긴다(useImagePaste.ts/useTextPaste.ts와 같은 "화면 중앙"
+ * 관례) — 여러 개를 한 번에 복사했으면 서로의 상대적 배치는 그대로 유지된다.
+ */
+export function pasteExternalObjects(
+  objects: CanvasObject[],
+  viewportCenterWorld: { x: number; y: number },
+): string[] {
+  if (objects.length === 0) return [];
+
+  const minX = Math.min(...objects.map((o) => o.x));
+  const minY = Math.min(...objects.map((o) => o.y));
+  const maxX = Math.max(...objects.map((o) => o.x + o.width));
+  const maxY = Math.max(...objects.map((o) => o.y + o.height));
+  const dx = viewportCenterWorld.x - (minX + maxX) / 2;
+  const dy = viewportCenterWorld.y - (minY + maxY) / 2;
+
+  return insertPastedObjects(objects, (original) => ({ x: original.x + dx, y: original.y + dy }), true);
 }

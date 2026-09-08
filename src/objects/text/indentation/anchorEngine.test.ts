@@ -5,6 +5,7 @@ import {
   computeAnchorForNewBullet,
   computeBackspaceAnchor,
   computeEnterAnchor,
+  computeHangingMarkerPrefixLength,
   detectLeadingBullet,
   findColonAlignmentPoint,
 } from './anchorEngine';
@@ -359,5 +360,29 @@ describe('통합 시나리오: Enter 이후 여러 번 Backspace한 뒤 다시 E
     const line2 = computeEnterAnchor('새로운 내용', afterBs2!);
     expect(line2).toBe(B);
     expect(line2).not.toBe(D);
+  });
+});
+
+
+describe('computeHangingMarkerPrefixLength', () => {
+  it('콜론이 있으면 그 뒤 공백을 건너뛴 위치를 반환한다(불릿보다 우선)', () => {
+    expect(computeHangingMarkerPrefixLength('레이블: 내용')).toBe(5);
+    expect(computeHangingMarkerPrefixLength('- 레이블: 내용')).toBe(7);
+  });
+
+  it('콜론이 없고 맨 앞이 불릿이면 그 뒤 공백을 건너뛴 위치를 반환한다', () => {
+    expect(computeHangingMarkerPrefixLength('- 내용')).toBe(2);
+    expect(computeHangingMarkerPrefixLength('·   내용')).toBe(4);
+  });
+
+  it('기호 뒤에 실제 본문이 없으면 null을 반환한다(매달 대상 없음)', () => {
+    expect(computeHangingMarkerPrefixLength('- ')).toBeNull();
+    expect(computeHangingMarkerPrefixLength('-')).toBeNull();
+    expect(computeHangingMarkerPrefixLength('레이블:')).toBeNull();
+    expect(computeHangingMarkerPrefixLength('레이블: ')).toBeNull();
+  });
+
+  it('콜론도 불릿도 없으면 null을 반환한다', () => {
+    expect(computeHangingMarkerPrefixLength('그냥 평범한 문장')).toBeNull();
   });
 });

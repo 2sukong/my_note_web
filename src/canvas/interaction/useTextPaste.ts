@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useInteractionStore } from '../../store/interactionStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { spawnTextFromClipboard, findFrameAt } from '../actions';
+import { deserializeExternalClipboard } from './externalClipboardFormat';
 
 /**
  * Phase 7: Ctrl+V(또는 Cmd+V)로 OS 클립보드의 순수 텍스트를 캔버스에 붙여넣는다.
@@ -29,6 +30,12 @@ export function useTextPaste() {
 
       const text = e.clipboardData?.getData('text/plain') ?? '';
       if (text.trim() === '') return;
+
+      // 방어적 가드: 정상적인 흐름이라면 useClipboardShortcuts.ts의 handlePaste가 이
+      // 이벤트를 이미 stopImmediatePropagation으로 막았어야 한다(Canvas.tsx의 훅 호출
+      // 순서 참고) — 혹시라도 그 순서가 나중에 바뀌어도, 우리 앱이 만든 객체 데이터가
+      // 엉뚱하게 일반 텍스트(JSON 그대로)로 붙여넣어지는 사고를 이중으로 막는다.
+      if (deserializeExternalClipboard(text) !== null) return;
 
       e.preventDefault();
 

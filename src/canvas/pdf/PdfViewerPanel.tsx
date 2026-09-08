@@ -424,9 +424,29 @@ export function PdfViewerPanel() {
           .pdf-viewer-page-badge(줌 로직에 종속)를 삭제하고, 줌 여부와 무관하게 항상
           페이지 영역 바로 위 오른쪽에 현재 페이지/전체 페이지 수를 보여준다. */}
       <div className="pdf-viewer-page-indicator-row">
+        <button
+          type="button"
+          className="pdf-viewer-page-nav"
+          onClick={() => setCurrentPageIndex(currentPageIndex - 1)}
+          disabled={currentPageIndex <= 0}
+          title="이전 페이지"
+          aria-label="이전 페이지"
+        >
+          <ChevronLeftIcon size={12} />
+        </button>
         <span className="pdf-viewer-page-indicator">
           {currentPageIndex + 1} / {panelRecord.pageCount}
         </span>
+        <button
+          type="button"
+          className="pdf-viewer-page-nav"
+          onClick={() => setCurrentPageIndex(currentPageIndex + 1)}
+          disabled={currentPageIndex >= panelRecord.pageCount - 1}
+          title="다음 페이지"
+          aria-label="다음 페이지"
+        >
+          <ChevronRightIcon size={12} />
+        </button>
       </div>
 
       <div className="pdf-viewer-stage" ref={stageRef}>

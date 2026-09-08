@@ -9,6 +9,7 @@ import {
   computeAnchorForNewBullet,
   computeBackspaceAnchor,
   computeEnterAnchor,
+  computeHangingMarkerPrefixLength,
   detectLeadingBullet,
   findColonAlignmentPoint,
 } from './indentation/anchorEngine';
@@ -180,6 +181,17 @@ function sameAnchors(a: AnnotationAnchor[], b: AnnotationAnchor[]): boolean {
   return true;
 }
 
+/** hangingIndents(Map<lineId, px>) 두 스냅샷이 실질적으로 같은지 비교한다 — 매 렌더마다
+ * 새 Map을 만들어 setState하면 참조가 달라 불필요한 재렌더가 반복되므로, sameRects/
+ * sameAnchors와 같은 이유로 값이 실제로 바뀌었을 때만 state를 갱신하기 위해 쓴다. */
+function sameHangingIndents(a: Map<string, number>, b: Map<string, number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) return false;
+  }
+  return true;
+}
+
 interface FocusRequest {
   lineId: string;
   offset: number;
@@ -262,6 +274,12 @@ export function TextObjectView({ object }: { object: TextObject }) {
   const [highlightRects, setHighlightRects] = useState<HighlightRect[]>([]);
   // Phase 4(2차): 주석 anchor 위치(화살표/말풍선을 그 자리 위에 그리기 위함). 원리는 위와 같다.
   const [annotationAnchors, setAnnotationAnchors] = useState<AnnotationAnchor[]>([]);
+  // 요구사항(2026-09, 줄바꿈 매달린 들여쓰기): 줄 id -> 그 줄이 화면에서 접힐 때(soft-wrap)
+  // 이어지는 줄이 추가로 걸려야 할 폭(px, world 단위). '-'/'·'/':' 로 시작하는 줄에서만
+  // 채워지고, 그 외 줄은 이 Map에 아예 키가 없다(=기존과 동일하게 anchor.offsetPx 하나로만
+  // 들여써짐). 하이라이트/주석 anchor와 마찬가지로 DOM 측정 결과라 useState + 아래
+  // useLayoutEffect로 갱신한다.
+  const [hangingIndents, setHangingIndents] = useState<Map<string, number>>(new Map());
   // 각 Annotation 말풍선이 실제로 렌더링된 높이(월드 px, AnnotationBubble이 자기 자신을
   // 측정해서 보고). 주석이 몇 줄이 되든(요구사항: 줄 수 제한 없이 자동으로 늘어남) 그
   // 줄 위에 미리 확보해 두는 여백(paddingTop)을 여기에 맞춰 동적으로 계산하기 위함이다.
@@ -527,10 +545,24 @@ export function TextObjectView({ object }: { object: TextObject }) {
       const originTop = containerRect.top + containerEl.clientTop * zoom;
       const nextRects: HighlightRect[] = [];
       const nextAnchors: AnnotationAnchor[] = [];
+      const nextHangingIndents = new Map<string, number>();
       for (const line of object.lines) {
         const el = lineElsRef.current.get(line.id);
         if (!el) continue;
         const textLen = el.textContent?.length ?? 0;
+
+        // 요구사항(2026-09, 줄바꿈 매달린 들여쓰기): 이 줄이 '-'/'·'/':' 로 시작해서
+        // 본문이 실제로 시작되는 지점이 있으면, 그 지점의 실제 렌더 픽셀 위치를 측정해
+        // anchor.offsetPx와의 차이(=표시 기호 자체가 차지하는 폭)를 구해둔다. 상자
+        // 폭을 넘겨 이 줄이 화면에서 접히면(soft-wrap), 아래 style의 paddingLeft/
+        // textIndent가 이 값만큼 첫 줄은 원래 위치 그대로 두고 이어지는 줄만 오른쪽으로
+        // 더 밀어(hanging indent) 본문 시작 지점에 맞춰 걸리게 한다.
+        const hangingPrefixLen = computeHangingMarkerPrefixLength(lineText(line));
+        if (hangingPrefixLen !== null) {
+          const markerEndOffsetPx = measureCharOffsetPx(el, hangingPrefixLen, containerEl, zoom);
+          const hang = markerEndOffsetPx - line.anchor.offsetPx;
+          if (hang > 0.5) nextHangingIndents.set(line.id, hang);
+        }
 
         for (const h of line.highlights ?? []) {
           const start = Math.max(0, Math.min(h.start, textLen));
@@ -625,6 +657,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
       }
       setHighlightRects((prev) => (sameRects(prev, nextRects) ? prev : nextRects));
       setAnnotationAnchors((prev) => (sameAnchors(prev, nextAnchors) ? prev : nextAnchors));
+      setHangingIndents((prev) => (sameHangingIndents(prev, nextHangingIndents) ? prev : nextHangingIndents));
 
       // 더 이상 존재하지 않는 주석의 높이 기록은 정리한다(메모리 누수 방지 + 언젠가
       // 같은 id가 재사용될 일은 없지만 깔끔하게 유지).
@@ -1430,7 +1463,16 @@ export function TextObjectView({ object }: { object: TextObject }) {
             position: 'relative',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
-            paddingLeft: line.anchor.offsetPx,
+            // 요구사항(2026-09, 줄바꿈 매달린 들여쓰기): hangingIndents에 이 줄의 값이
+            // 있으면(위 useLayoutEffect 참고 — '-'/'·'/':' 로 시작해 본문 시작 지점을
+            // 측정할 수 있었던 줄만 채워진다) paddingLeft를 그 지점까지 늘리고, 대신
+            // textIndent를 같은 폭만큼 음수로 줘서 "첫 줄"만 원래 anchor.offsetPx
+            // 위치 그대로 보이게 되돌린다. textIndent는 첫 줄에만 적용되고 paddingLeft는
+            // 줄 전체(=화면에서 접힌 이후 줄들 포함)에 적용되는 CSS 성질을 그대로
+            // 이용한 것 — 그 값이 없는(=기호로 시작하지 않는) 줄은 기존과 완전히 동일하게
+            // paddingLeft만으로 모든 화면 줄이 anchor.offsetPx에 맞춰 균일하게 들여써진다.
+            paddingLeft: line.anchor.offsetPx + (hangingIndents.get(line.id) ?? 0),
+            textIndent: hangingIndents.has(line.id) ? -(hangingIndents.get(line.id) ?? 0) : undefined,
             // Phase 4(2차): 이 줄에 주석이 하나라도 있으면 그 위에 말풍선+화살표가
             // 들어갈 공간을 미리 확보해서 텍스트와 겹치지 않게 한다. 주석이 여러 줄로
             // 늘어나도 잘리지 않도록(요구사항) 고정값이 아니라 실측 높이 기반으로 계산한다.

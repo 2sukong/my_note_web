@@ -76,12 +76,18 @@ export function Canvas() {
   useTextSelectionTools(containerRef);
   useImageHighlightTool(containerRef);
   useObjectDeleteShortcut();
+  // 요구사항(2026-09, 다른 URL의 my_note_web 사이에서도 Ctrl+C/V): useClipboardShortcuts의
+  // 전역 'paste' 리스너가 useImagePaste/useTextPaste보다 먼저 등록돼야, 시스템
+  // 클립보드에 담긴 우리 앱 서명 데이터를 이 훅이 가장 먼저 가로채 처리하고
+  // stopImmediatePropagation으로 나머지 두 훅이 같은 이벤트를 또 처리하는 것(엉뚱한
+  // 일반 텍스트 객체가 함께 생기는 것)을 막을 수 있다 — 그래서 이 두 훅보다 앞에 둔다
+  // (useClipboardShortcuts.ts의 handlePaste 주석 참고).
+  useClipboardShortcuts();
   useImagePaste();
   useTextPaste();
   useDrawShapeTool(containerRef);
   useDrawTextTool(containerRef);
   useUndoRedoShortcut();
-  useClipboardShortcuts();
   useGroupShortcut();
   const { cursor, isSpacePressed } = usePan(containerRef);
   // Phase 7: 마퀴 선택은 usePan의 isSpacePressed를 알아야 스페이스+드래그(pan)와

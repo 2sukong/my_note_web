@@ -179,3 +179,34 @@ export function computeAnchorForFirstLineBullet(
 export function computeBackspaceAnchor(currentAnchor: IndentAnchor): IndentAnchor | null {
   return currentAnchor.parent;
 }
+
+/**
+ * 요구사항(2026-09, 줄바꿈 매달린 들여쓰기): 이 줄의 텍스트가 상자 폭을 넘겨 화면에서
+ * 여러 줄로 접힐 때(soft-wrap), 이어지는 줄이 "본문이 실제로 시작되는 지점"에 맞춰
+ * 걸리게(hanging indent) 하려면 그 지점의 문자 인덱스를 알아야 한다 — 이 함수가 그
+ * 인덱스만 순수하게 계산한다(실제 픽셀 폭 측정은 DOM이 필요하므로 호출부인
+ * TextObjectView.tsx가 맡는다 — 이 파일의 다른 함수들과 같은 이유).
+ *
+ * 우선순위는 computeEnterAnchor와 동일하게 ':'가 최우선이다 — 줄이 동시에 '-'/'·'로
+ * 시작해도 ':'가 있으면 그 기준(콜론 + 뒤따르는 공백 다음 위치)을 쓴다. ':'가 없으면
+ * 맨 앞 '-'/'·' 기호 + 뒤따르는 공백 다음 위치를 쓴다. 둘 다 없으면 null(매달 대상 없음
+ * — 이 줄은 지금까지처럼 anchor.offsetPx 하나만으로 모든 화면 줄이 균일하게 들여써진다).
+ *
+ * 표시 기호 뒤에 실제 본문이 하나도 없으면(예: "- "만 있고 아직 아무 것도 안 쳤을 때)
+ * null을 반환한다 — 매달릴 본문 자체가 없으므로 여백을 만들 필요가 없다.
+ */
+export function computeHangingMarkerPrefixLength(text: string): number | null {
+  const colonPoint = findColonAlignmentPoint(text);
+  if (colonPoint) {
+    return colonPoint.charIndex < text.length ? colonPoint.charIndex : null;
+  }
+
+  const bullet = detectLeadingBullet(text);
+  if (bullet) {
+    let i = 1;
+    while (text[i] === ' ') i++;
+    return i < text.length ? i : null;
+  }
+
+  return null;
+}
