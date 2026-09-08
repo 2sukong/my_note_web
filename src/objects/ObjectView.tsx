@@ -57,12 +57,13 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 않던 버그 수정). Frame은 이 pointerdown으로 스스로 할 일이 없으므로(자신의
   // onClick도 text/image 도구만 처리) 그냥 흘려보내면 useDrawShapeTool의 캔버스
   // 레벨 native 리스너가 그 이벤트를 받는다.
-  // 요구사항(화살표/사각형을 텍스트 상자 위에도 그릴 수 있게): Text도 같은 원리로
-  // 확장한다 — TextObjectView.tsx의 컨테이너에 이미 data-shape-drawable="true"를
-  // 붙여뒀으므로(useDrawShapeTool.ts가 target.closest로 그 후손까지 인식), 여기서
-  // drag 핸들러만 떼면 pointerdown이 그대로 캔버스 레벨 리스너까지 흘러간다. Image는
-  // 요구사항 범위 밖이라 그대로 자기 드래그(이동/리사이즈)를 유지한다.
-  const isDrawPassthrough = (object.type === 'frame' || object.type === 'text') && SHAPE_TOOL_IDS.includes(activeTool);
+  // 요구사항(그리기 도구가 기존 객체를 가로챔): 화살표/사각형/텍스트 도구가 활성화된
+  // 동안엔 객체 타입과 무관하게(Frame/Text뿐 아니라 Shape/Image 포함) 전부 drag
+  // passthrough여야 한다 — 기존 객체 위에서 드래그를 시작해도 그 객체가 선택/이동되지
+  // 않고 새 객체 그리기가 시작돼야 하기 때문이다. 실제 차단은 useObjectDrag.ts의
+  // onPointerDown이 activeTool을 직접 확인해 self-guard하므로, 여기서는 그 핸들러를
+  // 아예 붙이지 않아 불필요한 리스너를 줄이고 커서를 'default'로 보여주는 역할만 한다.
+  const isDrawPassthrough = SHAPE_TOOL_IDS.includes(activeTool) || activeTool === 'text';
   // 요구사항: Frame은 더 이상 전체 영역이 드래그/선택 대상이 아니다 — 테두리/'Frame'
   // 라벨만 클릭·드래그해서 선택·이동할 수 있어야 하므로, 이 generic wrapper에는 Frame
   // 타입에 대해 drag 핸들러를 아예 붙이지 않는다. 실제 테두리/라벨 전용 드래그는

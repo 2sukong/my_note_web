@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useViewportStore } from '../../store/viewportStore';
 import { useObjectsStore } from '../../store/objectsStore';
 import { useInteractionStore } from '../../store/interactionStore';
+import { useToolStore, SHAPE_TOOL_IDS } from '../../store/toolStore';
 import { useHistoryStore } from '../../store/historyStore';
 import { useAlignmentGuideStore } from '../../store/alignmentGuideStore';
 import { computeSmartGuides } from '../../objects/align/smartGuides';
@@ -54,6 +55,14 @@ export function useObjectDrag(objectId: string) {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return; // 좌클릭만 select/drag 대상
+    // 버그 수정(그리기 도구가 기존 객체를 가로챔): 화살표/사각형/텍스트 등 "1회용
+    // 생성 도구"가 활성화된 동안엔, 그 드래그가 기존 객체 위에서 시작되더라도 그
+    // 객체를 선택/이동하지 않고 그대로 캔버스 레벨 그리기 리스너(useDrawShapeTool.ts/
+    // useDrawTextTool.ts)로 흘려보내야 한다 — stopPropagation도, pointer capture도
+    // 하지 않고 즉시 리턴해서 이벤트가 그대로 버블링되게 한다. PdfOverlayShapeView.tsx가
+    // 이미 쓰고 있는 것과 동일한 패턴(activeTool !== 'select'면 무시).
+    const tool = useToolStore.getState().activeTool;
+    if (tool !== 'select' && (SHAPE_TOOL_IDS.includes(tool) || tool === 'text')) return;
     e.stopPropagation(); // 캔버스 레벨 pan/deselect/마퀴 핸들러로 전파되지 않도록
 
     const interaction = useInteractionStore.getState();

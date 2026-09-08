@@ -34,10 +34,12 @@ export function useDrawTextTool(containerRef: RefObject<HTMLDivElement | null>) 
 
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
-      // 빈 캔버스 배경 또는 Frame의 빈 표면(data-shape-drawable) 위에서만 시작한다
-      // (useDrawShapeTool.ts와 동일한 규칙).
+      // 빈 캔버스 배경, Frame의 빈 표면, Text 상자(data-shape-drawable), 또는 기존
+      // 객체(data-object-id) 위에서 시작한다(useDrawShapeTool.ts와 동일한 규칙 —
+      // 버그 수정: 예전엔 target.dataset를 정확히 그 엘리먼트에서만 확인해서(closest가
+      // 아니라) Frame/Text처럼 내부에 후손 엘리먼트가 여러 겹인 경우 대부분 실패했다).
       const target = e.target as HTMLElement;
-      if (target !== el && target.dataset.shapeDrawable !== 'true') return;
+      if (target !== el && !target.closest('[data-shape-drawable="true"]') && !target.closest('[data-object-id]')) return;
       if (useToolStore.getState().activeTool !== 'text') return;
 
       const world = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());

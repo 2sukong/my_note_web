@@ -41,19 +41,21 @@ export function useDrawShapeTool(containerRef: RefObject<HTMLDivElement | null>)
       // 리스너를 붙이는 구조라 이 경우 pan과 draw가 동시에 시작될 수 있다. 실사용에서
       // "그리기 도구가 켜진 채로 스페이스를 누르는" 조합은 드물어서 우선순위를 낮췄다.
       if (e.button !== 0) return;
-      // 빈 캔버스 배경, Frame의 빈 표면, 또는 Text 상자(data-shape-drawable) 위에서만
-      // 시작한다. Frame은 "페이지 배경"에 가까운 개념이라 예외로 허용하고, Text는
-      // 요구사항(화살표/사각형을 텍스트 상자 위에도 그릴 수 있어야 함)에 따라
-      // 허용한다. 그 외 실제 객체(Image/다른 도형) 위/핸들 위는 각자의 핸들러가
-      // 처리하도록 그대로 막는다(버그 수정: 예전엔 el 자신이어야만 통과해서 Frame
-      // 위에서 전혀 그려지지 않았다).
+      // 빈 캔버스 배경, Frame의 빈 표면, Text 상자(data-shape-drawable), 또는 기존
+      // 객체(data-object-id — Shape/Image 포함) 위에서 시작한다. 요구사항(그리기
+      // 도구가 기존 객체를 가로챔): 화살표/사각형은 이제 어떤 기존 객체 위에서
+      // 드래그를 시작해도(그 객체가 선택/이동되는 대신) 새 도형이 그려져야 한다 —
+      // useObjectDrag.ts가 activeTool을 보고 self-guard하므로 그 객체는 이 이벤트에
+      // 반응하지 않고 그대로 여기까지 흘러온다. 그 외(툴바/속성 패널/컨텍스트 메뉴
+      // 등 캔버스 객체가 아닌 UI chrome) 위/핸들 위는 각자의 핸들러가 처리하도록
+      // 그대로 막는다.
       //
       // Text 상자는 Frame의 빈 표면과 달리 내부에 줄 div/span/하이라이트 레이어 등
       // 여러 겹의 후손 엘리먼트가 있어서, 실제로 클릭되는 e.target은 컨테이너 자신이
       // 아니라 그 안의 어떤 후손인 경우가 대부분이다 — 그래서 정확히 같은 엘리먼트인지
       // (target.dataset)가 아니라 조상 중에 그 표식이 있는지(closest)로 확인한다.
       const target = e.target as HTMLElement;
-      if (target !== el && !target.closest('[data-shape-drawable="true"]')) return;
+      if (target !== el && !target.closest('[data-shape-drawable="true"]') && !target.closest('[data-object-id]')) return;
 
       const tool = useToolStore.getState().activeTool;
       if (!SHAPE_TOOL_IDS.includes(tool)) return;
