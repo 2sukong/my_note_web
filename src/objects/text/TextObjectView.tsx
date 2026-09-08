@@ -233,17 +233,20 @@ export function TextObjectView({ object }: { object: TextObject }) {
   // 절대 줄이지 않는다. 다만 방금 생성된 상자의 아주 첫 측정만은 예외로 허용한다 —
   // 그래야 생성 시 임의로 잡아둔 기본 높이(actions.ts의 DEFAULT_TEXT_HEIGHT, 실제
   // 폰트 크기와 무관한 값)가 그 폰트의 실제 한 줄 높이로 정확히 맞춰진 뒤부터
-  // "커지기만" 규칙이 적용된다 — 이 ref가 그 첫 측정 여부를 기억한다.
+  // "커지기만" 규칙이 적용된다.
   //
-  // 버그 수정(리사이즈로 줄인 상자가 새로고침하면 다시 커짐): 이 ref는 "컴포넌트
-  // 인스턴스"별로만 기억하므로 새로고침하면 항상 false로 다시 시작한다 — 즉 이미
-  // 저장돼 있던(사용자가 직접 리사이즈했을 수도 있는) 기존 객체도 새로고침 직후엔
-  // "방금 생성된 상자"와 구별되지 않아서 첫 측정 예외가 도로 적용돼, 사용자가 일부러
-  // 줄여둔 높이를 자동으로 다시 키워버렸다. 그래서 이 ref 하나만으로는 부족하고,
-  // 아래 effect에서 object.createdAt === object.updatedAt(생성된 뒤 단 한 번도
-  // 수정된 적 없는, 진짜 방금 만든 객체)까지 함께 확인한다 — 새로고침으로 불러온
-  // 기존 객체는 이 조건이 항상 거짓이라 첫 측정 예외를 절대 타지 않는다.
-  const hasAutoFitHeightOnceRef = useRef(false);
+  // 버그 수정(2026-09, 두 번째 재발 — 아래 자동 높이 effect의 상세 주석 참고): 옛
+  // 이름은 hasAutoFitHeightOnceRef였고 "첫 측정을 이미 했는지"만 기억하는 boolean
+  // 하나였는데, 그것만으로는 "사용자가 리사이즈로 줄인 상자"와 "콘텐츠가 실제로
+  // 늘어난 경우"를 구분할 수 없었다(리사이즈 이후에도 scrollHeight 자체는 항상 콘텐츠의
+  // 전체 필요 높이를 그대로 반환하기 때문). 그래서 boolean 대신 "직전에 측정한
+  // 콘텐츠 자체의 필요 높이" 값을 기억하는 기준선으로 바꿨다 — object.height(사용자가
+  // 리사이즈로 정했을 수도 있는, 실제 저장되는 값)와는 별개의 값이다. null이면 "이
+  // 컴포넌트 인스턴스에서 아직 한 번도 측정한 적 없음"(방금 마운트/새로고침 후
+  // 재마운트) — 컴포넌트 인스턴스별로만 기억하므로 새로고침하면 항상 null로 다시
+  // 시작하지만, 그 시점의 판단은 object.manualHeight(types/object.ts 주석 참고)와
+  // object.createdAt===updatedAt으로 보강한다(아래 effect 참고).
+  const lastMeasuredContentHeightRef = useRef<number | null>(null);
   // 요구사항(빈 텍스트 상자 자동 삭제): 이 상자에 실제 글자가 한 번이라도 있었는지
   // 기억한다. 마운트 시 이미 내용이 있으면(기존에 저장된 노트를 다시 연 경우) true로
   // 시작하고, 편집 중 한 글자라도 생기면 그 순간부터 true로 고정된다(이후 전부
@@ -693,49 +696,61 @@ export function TextObjectView({ object }: { object: TextObject }) {
       const nextHeight = Math.max(MIN_TEXT_HEIGHT, measuredHeight);
       // 요구사항(자동 높이는 커지는 방향으로만): 이 effect가 아직 한 번도 높이를
       // 맞춰본 적 없으면(방금 생성/마운트) 첫 측정에 한해 커지든 줄어들든 그대로
-      // 반영해서 실제 폰트 기준 자연스러운 높이로 맞추고, 그 이후로는 nextHeight가
-      // 현재 object.height보다 "확실히 더 클 때"만 반영한다(줄어드는 방향은 절대
-      // 반영하지 않음 — 위 hasAutoFitHeightOnceRef 주석 참고).
+      // 반영해서 실제 폰트 기준 자연스러운 높이로 맞추고, 그 이후로는 "콘텐츠가 실제로
+      // 더 필요로 하게 됐을 때만" 키운다(줄어드는 방향은 절대 반영하지 않음).
       //
-      // 버그 수정(리사이즈로 줄인 상자가 새로고침하면 다시 커짐): hasAutoFitHeightOnceRef는
-      // "컴포넌트 인스턴스"별로만 기억하는데, 새로고침하면 기존에 저장돼 있던(이미 사용자가
-      // 직접 리사이즈했을 수도 있는) 객체도 항상 이 ref가 false로 새로 시작한다. 원래
-      // 주석은 "새로고침으로 다시 불러온 기존 객체는 첫 측정값이 이미 저장된 height와
-      // 사실상 같아서 예외를 허용해도 차이가 없다"고 가정했지만, 사용자가 실제 내용
-      // 높이보다 더 작게 리사이즈해둔 경우엔 그 가정이 깨진다 — 첫 측정값(nextHeight)이
-      // 저장된 height보다 커서 "첫 측정 예외"가 그 값을 도로 키워버린다. createdAt과
-      // updatedAt이 아직 같다는(=생성된 뒤 단 한 번도 수정되지 않은, 진짜 방금 만든
-      // 객체라는) 조건을 추가로 걸어서, 기존에 저장돼 있던(즉 한 번이라도 수정된 적
-      // 있는) 객체는 새로고침 직후에도 항상 "커지는 방향으로만" 규칙만 적용받게 한다.
-      // 버그 수정(리사이즈로 세로를 줄인 뒤 가로를 더 줄이면 글자가 넘쳐도 상자가
-      // 자라지 않음): object.manualHeight(types/object.ts 주석 참고)가 true면 사용자가
-      // 리사이즈 핸들로 세로 크기를 직접 정했다는 뜻이지만, 그렇다고 이후 내용이
-      // 정말로 넘칠 때(예: 가로 폭을 더 줄여 줄바꿈이 늘어나는 경우)까지 절대 자동으로
-      // 커지지 않아야 하는 것은 아니다 — SelectionOverlay.tsx의 핸들 주석에도 "내용이
-      // 현재 높이보다 더 필요할 때만 자동으로 커진다"고 명시돼 있다. 예전엔 manualHeight가
-      // true인 순간부터 이 블록 전체를 건너뛰어서, 리사이즈를 한 번이라도 한 상자는
-      // 그 뒤로 글자가 상자 밖으로 삐져나와도 영원히 자동으로 자라지 못했다(버그 신고:
-      // 가로 폭을 줄여 텍스트가 여러 줄로 넘어가도 세로 길이가 그대로 유지됨).
-      // 그래서 manualHeight 여부와 무관하게 "커지는 방향으로만" 규칙(shouldApply의
-      // grow-only 분기)은 항상 적용하고, manualHeight가 true인 객체만 "첫 측정에 한해
-      // 줄어들 수도 있는" 예외(shrink-on-first-measurement)에서 제외한다 — 이 예외는
-      // 어차피 "생성된 뒤 단 한 번도 수정된 적 없는" 객체에만 해당하는데, 리사이즈
-      // 자체가 이미 수정 행위이므로 manualHeight가 true인 객체는 이 조건에 걸리지
-      // 않는다(아래 isGenuinelyFreshObject 계산 참고). 즉 실질적인 동작 변화는
-      // "manualHeight 객체도 grow-only 규칙을 적용받는다"는 것 하나뿐이다.
+      // 버그 재발(2026-09, 커밋 6901e73): "리사이즈로 줄인 상자가 새로고침하면 다시
+      // 커짐"을 고치려고 예전엔 object.manualHeight가 true면 이 블록 전체를 건너뛰게
+      // 했는데, 그러면 리사이즈 이후 가로 폭을 더 줄여 줄바꿈이 늘어나도 세로가 전혀
+      // 안 자라 글자가 상자 밖으로 삐져나오는 별개 버그가 생겼다. 그래서 "manualHeight
+      // 여부와 무관하게 grow-only 규칙은 항상 적용한다"(nextHeight를 object.height와
+      // 직접 비교)로 바꿨는데, 이게 원래 버그를 그대로 되살렸다 — 이 컨테이너는
+      // overflow:'visible'이라 scrollHeight(=nextHeight)는 상자에 실제로 설정된
+      // 높이와 무관하게 "내용이 차지하는 전체 레이아웃 높이"를 항상 그대로 반환한다
+      // (헤드리스 브라우저로 직접 확인: overflow:visible + 고정 height여도 scrollHeight는
+      // 줄어들지 않고 자식 콘텐츠의 실제 높이를 반환한다). 즉 사용자가 내용보다 작게
+      // 리사이즈해두면 nextHeight는 그 이후로도 영원히 "내용의 전체 높이"를 가리키므로,
+      // "nextHeight가 지금 object.height보다 크면 키운다"는 비교는 리사이즈 직후는
+      // 물론 다음 렌더마다(그리고 새로고침 후 첫 렌더에도) 계속 참이 되어 무조건 다시
+      // 키워버렸다("일정 크기보다 작게 안 만들어짐" 버그의 원인).
+      //
+      // 진짜 수정: nextHeight를 "지금 설정된 object.height"와 비교하는 대신, "직전에
+      // 측정했던 콘텐츠 높이" 기준선(lastMeasuredContentHeightRef, 컴포넌트 인스턴스별로
+      // 살아있음)과 비교한다. 콘텐츠 자체가 그 기준선보다 실제로 더 커졌을 때만
+      // (타이핑/폰트 변경/줄바꿈 증가 등으로 진짜 더 많은 공간이 필요해졌을 때만) 그
+      // 증가분을 상자가 못 따라가면 키운다 — 콘텐츠는 그대로인데 사용자가 상자만 줄인
+      // 경우(리사이즈 직후, 그리고 새로고침 뒤 재측정)는 nextHeight가 기준선과 같으므로
+      // 더 이상 자동으로 키우지 않는다. object.manualHeight는 여전히 "방금 생성된
+      // 상자의 첫 측정에 한해 줄어드는 것도 허용"하는 예외(아래 isGenuinelyFreshObject)
+      // 에서만 쓰인다 — 그 예외가 아니면(한 번이라도 리사이즈됐거나 이미 존재하던
+      // 객체가 새로고침으로 다시 마운트된 경우) 이 effect의 첫 실행은 그 순간의 콘텐츠
+      // 높이를 "기준선으로 조용히 채택"만 하고 object.height는 절대 건드리지 않는다 —
+      // 그래서 사용자가 정해둔(또는 이미 저장돼 있던) 크기가 새로고침 직후에도 그대로
+      // 유지된다.
       const isGenuinelyFreshObject = !object.manualHeight && object.createdAt === object.updatedAt;
-      const shouldApply =
-        hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
-          ? nextHeight - object.height > 0.5
-          : Math.abs(nextHeight - object.height) > 0.5;
-      hasAutoFitHeightOnceRef.current = true;
-      if (shouldApply) {
-        // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
-        // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
-        // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
-        // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
-        // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
-        useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+      const baseline = lastMeasuredContentHeightRef.current;
+      if (baseline === null) {
+        // 이 컴포넌트 인스턴스에서 처음 도는 실행(방금 마운트/새로고침 후 재마운트).
+        lastMeasuredContentHeightRef.current = nextHeight;
+        if (isGenuinelyFreshObject && Math.abs(nextHeight - object.height) > 0.5) {
+          useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+        }
+      } else if (nextHeight - baseline > 0.5) {
+        // 콘텐츠가 실제로 더 커졌다 — 기준선을 갱신하고, 지금 높이가 그걸 못
+        // 따라가면(넘치면) 키운다.
+        lastMeasuredContentHeightRef.current = nextHeight;
+        if (nextHeight - object.height > 0.5) {
+          // coalesceKey를 setTextLines와 같은 `text:${id}`로 맞춰서, 연속 타이핑 중
+          // 매 키 입력마다 뒤따르는 높이 조정이 별도 undo 단계로 쌓이지 않고 방금
+          // 커밋된 텍스트 편집 undo 단계에 자연스럽게 합쳐지게 한다(historyStore.ts의
+          // 시간창 코얼레싱). 리사이즈 드래그(폭 변경) 도중이면 useObjectResize가 이미
+          // 열어 둔 트랜잭션이 있어서 coalesceKey와 무관하게 그 트랜잭션에 합쳐진다.
+          useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+        }
+      } else if (nextHeight < baseline - 0.5) {
+        // 콘텐츠가 줄었다(텍스트 삭제 등) — 기준선만 낮춰서 다음에 다시 늘어날 때
+        // 정확히 비교되게 하고, 상자 자체는 여전히 줄이지 않는다(맨 위 요구사항).
+        lastMeasuredContentHeightRef.current = nextHeight;
       }
     }
     // annotationHeights를 deps에 포함해야 한다: 주석 높이가 바뀌면(줄 수 증가) 그 줄의
@@ -1130,14 +1145,22 @@ export function TextObjectView({ object }: { object: TextObject }) {
   // 따라왔다. store를 건드리지 않고 DOM만 다시 재서(scrollHeight) "커지는 방향으로만"
   // 규칙만 그대로 적용하면 조합 중에도 안전하게 높이를 맞출 수 있다 — 아래 useLayoutEffect의
   // 자동 높이 로직과 완전히 같은 grow-only 판단을 재사용한다(단, 여기서는 store를
-  // 전혀 건드리지 않으므로 hasAutoFitHeightOnceRef/isGenuinelyFreshObject 같은 "첫 측정"
-  // 예외는 관여하지 않는다 — 그 예외는 이 effect가 이미 한 번 이상 정상 실행된 뒤에만
-  // 의미가 있고, 조합 중간의 임시 측정은 그 자체로 별개의 실행이 아니라 다음 effect
-  // 실행 전까지의 임시 보정일 뿐이다).
+  // 전혀 건드리지 않으므로 lastMeasuredContentHeightRef/isGenuinelyFreshObject 같은
+  // "첫 측정" 예외는 관여하지 않는다 — 그 예외는 이 effect가 이미 한 번 이상 정상
+  // 실행된 뒤에만 의미가 있고, 조합 중간의 임시 측정은 그 자체로 별개의 실행이
+  // 아니라 다음 effect 실행 전까지의 임시 보정일 뿐이다).
   const growHeightIfNeeded = () => {
     const containerEl = containerRef.current;
     if (!containerEl) return;
     const nextHeight = Math.max(MIN_TEXT_HEIGHT, containerEl.scrollHeight);
+    // 버그 수정: 위 useLayoutEffect와 똑같이 object.height가 아니라 기준선
+    // (lastMeasuredContentHeightRef)과 비교한다 — 그렇지 않으면 사용자가 리사이즈로
+    // 줄여둔 상자에서 IME로 타이핑을 시작하는 순간(조합 중엔 store가 아직 안 갱신돼
+    // 이 함수가 대신 돈다) scrollHeight가 늘 상자보다 크다는 이유로 매번 원래
+    // 콘텐츠 높이로 되돌려버린다.
+    const baseline = lastMeasuredContentHeightRef.current;
+    if (baseline !== null && nextHeight - baseline <= 0.5) return;
+    lastMeasuredContentHeightRef.current = nextHeight;
     if (nextHeight - object.height > 0.5) {
       useObjectsStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
     }

@@ -28,6 +28,7 @@ import { Toolbar } from './Toolbar';
 import { DrawPreview } from './DrawPreview';
 import { HighlightDragPreview } from './HighlightDragPreview';
 import { TextRangeSelectionOverlay } from './TextRangeSelectionOverlay';
+import { SearchMatchOverlay } from './SearchMatchOverlay';
 import { ImageCropOverlay } from './ImageCropOverlay';
 import { AlignmentGuideOverlay } from './AlignmentGuideOverlay';
 import { PropertiesPanel } from './PropertiesPanel';
@@ -240,6 +241,7 @@ export function Canvas() {
           <DrawPreview />
           <HighlightDragPreview />
           <TextRangeSelectionOverlay />
+          <SearchMatchOverlay />
           <AlignmentGuideOverlay />
           <MarqueeOverlay />
           <SelectionOverlay />

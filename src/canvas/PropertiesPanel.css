@@ -3,10 +3,16 @@
    보라색 강조 대신 흰 배경 + 짙은 회색 테두리(또는 아주 연한 그레이 채움)로 표현한다. */
 
 .properties-panel {
+  /* 요구사항(2026-09-08): 왼쪽 파일트리 사이드바(FileTreePanel.css의 .file-tree-panel)와
+     똑같이 화면 상/우/하 끝에 완전히 붙는 도킹형 패널로 변경 — 예전엔 top/right/bottom
+     각 12px씩 띄운 "떠 있는 카드" 형태였다. 테두리도 왼쪽 사이드바가 맞닿는 한쪽 변에만
+     border를 주는 것과 대칭으로 border-left 하나만 남긴다(위/오른쪽/아래는 뷰포트 경계와
+     맞닿아 어차피 안 보임). box-shadow(--shadow-panel)는 방향성 없는 ambient 그림자라
+     그대로 유지해도 3면 도킹 상태에서 동일하게 자연스럽다. */
   position: fixed;
-  top: 12px;
-  right: 12px;
-  bottom: 12px;
+  top: 0;
+  right: 0;
+  bottom: 0;
   z-index: 10;
   width: 240px;
   display: flex;
@@ -14,7 +20,7 @@
   /* 요구사항: 오른쪽 사이드바 모서리는 둥글지 않게(직각). */
   border-radius: 0;
   background: var(--color-surface);
-  border: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border);
   box-shadow: var(--shadow-panel);
   font-family: system-ui, sans-serif;
   overflow: hidden;
@@ -23,11 +29,34 @@
 .properties-panel-header {
   display: flex;
   align-items: center;
+  /* 제목과 닫기(X) 버튼을 양 끝으로 분리 — 아래 .properties-panel-close 참고. */
+  justify-content: space-between;
   padding: 10px 12px;
   border-bottom: 1px solid var(--color-border);
   font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--color-text);
+}
+
+/* 요구사항(2026-09-08): 사이드바 최상단에 두는 수동 닫기(X) 버튼 — 선택/기본값
+   상태 자체는 그대로 두고 패널만 시각적으로 감춘다(PropertiesPanel.tsx의 PanelShell
+   참고). 스타일은 TrashPanel의 .trash-panel-close와 같은 ghost 아이콘 버튼 패턴. */
+.properties-panel-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: var(--radius-sm);
+}
+
+.properties-panel-close:hover {
+  color: var(--color-text);
+  background: var(--color-surface-hover);
 }
 
 .properties-panel-body {
@@ -147,9 +176,17 @@
    바꿨다(PropertiesPanel.tsx의 FrameSizePresetRow, objects/style/StyleIcons.tsx의
    FrameSizeIcon 참고) — 그래서 이 전용 클래스는 삭제했다. */
 
+/* 요구사항(회색 카드 높이 통일, 2026-09-08): 옵션 3개짜리 TileGroup(.properties-tile,
+   26px) 등 다른 회색 카드들과 세로 높이를 맞춘다 — 폭은 카드마다 담는 내용이 달라
+   (폰트 이름, "Frame" 같은 자유 입력 등) 그대로 유동적으로 두고 높이만 26px로
+   고정한다. Dropdown/FontDropdown 트리거(.properties-dropdown-trigger, flex)는 이
+   높이 안에서 자동으로 세로 중앙 정렬되고, 일반 <input>(예: Frame "이름")도 고정
+   높이 안에서 브라우저가 텍스트를 세로 중앙에 놓는다. */
 .properties-select {
   flex: 1;
   min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
   font-size: var(--font-size-sm);
   padding: 5px 6px;
   border-radius: var(--radius-sm);
@@ -166,17 +203,37 @@
    바꿀 수 없다(네이티브 팝업) — 텍스트/주석 "크기"처럼 둥근 카드 모양이 필요한
    자리는 Dropdown(직접 만든 트리거+목록)으로 대체한다. 트리거는 기존
    .properties-select와 같은 톤을 쓰고, 펼쳐지는 목록만 여기서 새로 정의한다. */
+/* 요구사항(회색 카드 폭 통일, 2026-09-08 2차): 텍스트/주석/형광펜 메뉴의 글꼴·크기
+   드롭다운도 "크기"(TileGroup, 86px) 기준에 맞춘다 — .properties-select의
+   flex:1(사용 가능한 폭을 전부 채움)을 여기서 덮어써 86px 고정폭으로 좁힌다(이
+   규칙이 .properties-select보다 CSS 파일 안에서 나중에 나오므로 같은 우선순위에서
+   이긴다). Frame "이름" 입력창은 이 클래스가 없는 순수 .properties-select라 영향
+   없음(계속 유동폭 유지 — 이름은 길게 입력해야 할 수 있어 굳이 좁힐 이유가 없음).
+   폰트 이름처럼 86px보다 긴 라벨은 아래 .properties-dropdown-trigger-label의
+   ellipsis로 잘려 보인다 — 펼쳐지는 목록(.properties-dropdown-list) 자체는 폭
+   제한이 없어 전체 이름이 그대로 보인다. */
 .properties-dropdown-trigger {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
+  width: 86px;
+  flex: 0 0 auto;
   cursor: pointer;
 }
 
 .properties-dropdown-trigger svg {
   flex: 0 0 auto;
   color: var(--color-text-muted);
+}
+
+.properties-dropdown-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
 }
 
 /* 요구사항: 스크롤 없이 항상 둥근 사각형 카드 하나로 — 목록 길이만큼 카드 자체가
@@ -278,12 +335,18 @@
   cursor: default;
 }
 
+/* 요구사항(회색 카드 폭 통일, 2026-09-08): 옵션 3개짜리 TileGroup(.properties-tile-group,
+   26*3 + gap 2*2 + padding 2*2 = 86px — "크기" 프리셋 행이 기준)과 스테퍼 전체 폭을
+   맞추기 위해, 44px였던 이 입력창만 34px로 줄인다(−/+ 버튼은 26px 그대로 유지 —
+   다른 26px 회색 카드들과의 통일성은 건드리지 않는다): 26+34+26=86px. 가로 패딩도
+   2px→1px로 줄여 줄어든 폭 안에서 숫자(프레임 크기는 최대 4자리 "4000"까지)가
+   최대한 여유 있게 들어가게 한다. */
 .properties-stepper-input {
-  width: 44px;
+  width: 34px;
   min-width: 0;
   font-size: var(--font-size-sm);
   text-align: center;
-  padding: 4px 2px;
+  padding: 4px 1px;
   border-radius: 0;
   border: none;
   background: transparent;
@@ -366,12 +429,17 @@
 
 /* 요구사항(텍스트 스타일 저장, 2026-09 확장): 이름을 직접 입력하는 칸 — properties-color-hex-input과
    같은 톤(테두리 없이 연한 회색 채움)의 작은 입력창. */
+/* 회색 카드 높이 통일(2026-09-08): 옆에 나란히 오는 "저장" 버튼(.properties-save-preset-btn,
+   26px)과 높이가 달라 보이던 문제 — height를 26px로 고정하고 세로 패딩은 없앤다
+   (가로 폭은 flex:1로 계속 유동적). */
 .properties-style-name-input {
   flex: 1;
   min-width: 0;
+  height: 26px;
+  box-sizing: border-box;
   font: inherit;
   font-size: var(--font-size-xs);
-  padding: 7px 8px;
+  padding: 0 8px;
   border-radius: var(--radius-sm);
   border: none;
   background: var(--color-fill);
@@ -420,12 +488,16 @@
   gap: 4px;
 }
 
+/* 회색 카드 높이 통일(2026-09-08): 다른 26px 카드들과 세로 높이를 맞춘다 —
+   폭(알약 길이)은 저장된 스타일 이름 길이에 따라 계속 유동적으로 둔다. */
 .properties-style-chip {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  height: 26px;
+  box-sizing: border-box;
   font-size: var(--font-size-xs);
-  padding: 4px 4px 4px 9px;
+  padding: 0 4px 0 9px;
   border-radius: 999px;
   background: var(--color-fill);
   color: var(--color-text-secondary);

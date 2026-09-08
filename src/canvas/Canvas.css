@@ -226,10 +226,15 @@
   color: var(--color-text);
 }
 
+/* 버그 수정(2026-09-08): 예전엔 토글 버튼 바로 "아래"(top:40px)에 펼쳐졌는데,
+   바로 아래가 PdfLibraryRail(.pdf-library-rail, top:54px)의 PDF 아이콘 자리라
+   DOM 순서상 나중에 그려지는 그 아이콘에 결과 카드 윗부분이 가려졌다. 아래
+   대신 돋보기 아이콘 "옆"(오른쪽)으로 펼치도록 변경 — 버튼 폭(34px) + 8px
+   간격만큼 오른쪽으로, 세로 위치는 버튼과 동일한 높이(top:0)로 맞춘다. */
 .canvas-search-panel {
   position: absolute;
-  top: 40px;
-  left: 0;
+  top: 0;
+  left: 42px;
   width: 260px;
   border-radius: var(--radius-md);
   background: var(--color-surface);

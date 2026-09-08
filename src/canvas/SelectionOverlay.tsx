@@ -38,7 +38,7 @@ export function SelectionOverlay() {
   // 요구사항(텍스트 상자 생성/크기조절, 2차): 텍스트 상자 높이도 이제 사용자가
   // resize handle로 직접 조절할 수 있다(더 이상 항상 내용에 맞춰 자동으로만 정해지지
   // 않음 — 내용이 현재 높이보다 더 필요할 때만 자동으로 커진다, TextObjectView.tsx의
-  // hasAutoFitHeightOnceRef 참고). 그래서 다른 객체와 동일하게 8방향 핸들을 모두 쓴다.
+  // lastMeasuredContentHeightRef 참고). 그래서 다른 객체와 동일하게 8방향 핸들을 모두 쓴다.
   const handleList = RESIZE_HANDLES;
 
   const resizableGroupIds =

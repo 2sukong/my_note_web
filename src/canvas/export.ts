@@ -1,6 +1,7 @@
 import { toPng, toJpeg } from 'html-to-image';
 import { jsPDF } from 'jspdf';
 import { useObjectsStore } from '../store/objectsStore';
+import { loadAllFontRecords } from '../store/fontPersistence';
 import type { CanvasObject, FrameObject } from '../types/object';
 
 /**
@@ -57,6 +58,71 @@ function buildIncludedObjectIds(frame: FrameObject, objects: Record<string, Canv
   return includedIds;
 }
 
+const CUSTOM_FONT_FAMILY_PREFIX = 'user-font-';
+
+/**
+ * 버그 수정(내보낸 이미지의 폰트가 실제 사용 중인 폰트와 다르게 나오던 문제):
+ * html-to-image는 폰트를 자동으로 감지해서 base64로 임베드해주는 기능
+ * (embedWebFonts, embed-webfonts.js)이 있지만, 이건 document.styleSheets에
+ * 실제로 등록된 @font-face CSS 규칙만 훑는다. 이 앱이 사용자가 업로드한 폰트를
+ * 등록하는 방식(store/fontStore.ts)은 new FontFace(...) + document.fonts.add(...)
+ * 라는 JS API라서 CSSOM에 @font-face 규칙이 전혀 생기지 않고, 그래서
+ * html-to-image 입장에서는 이 폰트가 아예 "안 보인다" — 결국 브라우저가 알아서
+ * 시스템 폴백 폰트로 대체해 렌더링해버린다. 그래서 여기서 내보낼 프레임 안에서
+ * 실제로 쓰인 커스텀 폰트 family들을 직접 찾아서, 이미 IndexedDB에 저장해둔
+ * 원본 바이트(fontPersistence.ts)로부터 @font-face CSS를 직접 만들어
+ * options.fontEmbedCSS로 넘긴다 — 이 옵션이 설정되면 html-to-image는 자동
+ * 감지를 건너뛰고 이 CSS를 그대로 쓴다.
+ */
+function collectUsedCustomFontFamilies(includedIds: Set<string>, objects: Record<string, CanvasObject>): Set<string> {
+  const families = new Set<string>();
+  const consider = (family: string | undefined) => {
+    if (family && family.startsWith(CUSTOM_FONT_FAMILY_PREFIX)) families.add(family);
+  };
+  for (const id of includedIds) {
+    const obj = objects[id];
+    if (!obj || obj.type !== 'text') continue;
+    consider(obj.fontFamily);
+    for (const line of obj.lines) {
+      for (const run of line.runs) consider(run.fontFamily);
+      for (const annotation of line.annotations ?? []) consider(annotation.fontFamily);
+    }
+  }
+  return families;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const CHUNK_SIZE = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+  }
+  return btoa(binary);
+}
+
+function guessFontMimeType(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer.slice(0, 4));
+  const sig = String.fromCharCode(...bytes);
+  if (sig === 'wOFF') return 'font/woff';
+  if (sig === 'wOF2') return 'font/woff2';
+  if (sig === 'OTTO') return 'font/otf';
+  return 'font/ttf';
+}
+
+async function buildCustomFontEmbedCSS(usedFamilies: Set<string>): Promise<string> {
+  if (usedFamilies.size === 0) return '';
+  const records = await loadAllFontRecords();
+  const rules: string[] = [];
+  for (const record of records) {
+    if (!usedFamilies.has(record.family)) continue;
+    const base64 = arrayBufferToBase64(record.data);
+    const mime = guessFontMimeType(record.data);
+    rules.push(`@font-face { font-family: '${record.family}'; src: url(data:${mime};base64,${base64}); }`);
+  }
+  return rules.join('\n');
+}
+
 async function rasterizeFrame(frame: FrameObject, format: 'png' | 'jpeg'): Promise<string> {
   const worldEl = findCanvasWorldEl();
   const objects = useObjectsStore.getState().objects;
@@ -70,6 +136,9 @@ async function rasterizeFrame(frame: FrameObject, format: 'png' | 'jpeg'): Promi
     return true;
   };
 
+  const usedCustomFontFamilies = collectUsedCustomFontFamilies(includedIds, objects);
+  const customFontEmbedCSS = await buildCustomFontEmbedCSS(usedCustomFontFamilies);
+
   const width = Math.max(1, Math.round(frame.width));
   const height = Math.max(1, Math.round(frame.height));
   const options = {
@@ -78,6 +147,7 @@ async function rasterizeFrame(frame: FrameObject, format: 'png' | 'jpeg'): Promi
     height,
     pixelRatio: 2,
     backgroundColor: '#ffffff',
+    fontEmbedCSS: customFontEmbedCSS,
     style: {
       transform: `translate(${-frame.x}px, ${-frame.y}px)`,
       transformOrigin: '0 0',

@@ -32,7 +32,7 @@ function nextZIndex(): number {
  * 크기조절, 2차): height는 더 이상 내용에 맞춰서만 정해지지 않는다 — 사용자가 드래그로
  * 만들거나 resize handle로 조절한 값이 그대로 유지되고, 내용이 그 값보다 더 큰 높이를
  * 필요로 할 때만(넘칠 때만) TextObjectView.tsx의 effect가 자동으로 키운다(줄어드는
- * 방향으로는 절대 자동 조정하지 않음 — 그 effect의 hasAutoFitHeightOnceRef 주석 참고).
+ * 방향으로는 절대 자동 조정하지 않음 — 그 effect의 lastMeasuredContentHeightRef 주석 참고).
  *
  * frameId를 넘기면 그 Frame에 논리적으로 속한 Text가 된다(Frame이 이동하면
  * 같이 따라간다 — objectsStore.moveObjectTo 참고). Frame과 DOM 부모-자식 관계는

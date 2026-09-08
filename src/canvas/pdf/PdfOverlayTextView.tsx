@@ -115,9 +115,11 @@ export function PdfOverlayTextView({
   // 이 줄만은 절대 건드리지 않도록 막는다(조합 버퍼는 store가 알지 못하는 "DOM에만
   // 있는" 상태라, effect가 store 값으로 덮어쓰면 그대로 사라진다).
   const composingLineIdRef = useRef<string | null>(null);
-  // 자동 높이 effect 전용 — TextObjectView.tsx의 hasAutoFitHeightOnceRef와 같은 목적
-  // (아래 자동 높이 effect 주석 참고).
-  const hasAutoFitHeightOnceRef = useRef(false);
+  // 자동 높이 effect 전용 — TextObjectView.tsx의 lastMeasuredContentHeightRef와 같은
+  // 목적(아래 자동 높이 effect 주석, 그리고 objects/text/TextObjectView.tsx의 같은
+  // 이름 ref 선언부 주석 참고 — "직전에 측정한 콘텐츠 자체의 필요 높이" 기준선이지
+  // object.height 자체가 아니다).
+  const lastMeasuredContentHeightRef = useRef<number | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startClientX: number;
@@ -200,13 +202,17 @@ export function PdfOverlayTextView({
     setHighlightRectsByLine(next);
   }, [object.lines, displayScale]);
 
-  // 자동 높이(objects/text/TextObjectView.tsx 674줄 부근과 100% 같은 규칙 — 위 import
-  // 옆 주석 참고, 커스텀 폰트 대기 가드만 뺐다): 내용이 지금 저장된 height보다 더
-  // 필요하면(scrollHeight가 더 크면) 항상 키운다("커지는 방향으로만"). 사용자가
-  // 리사이즈 핸들로 직접 줄인 상자(manualHeight)는 줄어드는 방향으로는 절대 자동
-  // 반영하지 않되, "생성된 뒤 한 번도 수정된 적 없는" 진짜 새 객체의 첫 측정에
-  // 한해서는(즉 manualHeight가 아직 false일 때만) 줄어드는 값도 그대로 반영해서
-  // 실제 폰트 기준 자연스러운 초기 높이로 맞춘다.
+  // 자동 높이(objects/text/TextObjectView.tsx의 같은 이름 effect와 100% 같은 규칙 —
+  // 그쪽의 상세 주석 참고, 커스텀 폰트 대기 가드만 뺐다): 콘텐츠 자체가 직전에
+  // 측정했던 기준선(lastMeasuredContentHeightRef)보다 실제로 더 커졌을 때만 키우고,
+  // "지금 저장된 height"와 직접 비교하지 않는다 — contentEl은 overflow:visible이라
+  // scrollHeight가 상자에 설정된 높이와 무관하게 항상 콘텐츠 전체 필요 높이를
+  // 반환하므로, height와 직접 비교하면 사용자가 내용보다 작게 리사이즈해둔 상자를
+  // 매 렌더/새로고침마다 무조건 다시 키워버린다(TextObjectView.tsx가 실제로 겪은
+  // 회귀, 2026-09 커밋 6901e73). object.manualHeight는 "생성된 뒤 한 번도 수정된
+  // 적 없는" 진짜 새 객체의 첫 측정에 한해서만(즉 manualHeight가 아직 false일 때만)
+  // 줄어드는 값도 허용해서 실제 폰트 기준 자연스러운 초기 높이로 맞추는 예외에서만
+  // 쓰인다.
   useLayoutEffect(() => {
     const contentEl = contentRef.current;
     if (!contentEl) return;
@@ -217,13 +223,19 @@ export function PdfOverlayTextView({
     const measuredHeight = contentEl.scrollHeight / displayScale;
     const nextHeight = Math.max(MIN_TEXT_HEIGHT, measuredHeight);
     const isGenuinelyFreshObject = !object.manualHeight && object.createdAt === object.updatedAt;
-    const shouldApply =
-      hasAutoFitHeightOnceRef.current || !isGenuinelyFreshObject
-        ? nextHeight - object.height > 0.5
-        : Math.abs(nextHeight - object.height) > 0.5;
-    hasAutoFitHeightOnceRef.current = true;
-    if (shouldApply) {
-      usePdfOverlayStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+    const baseline = lastMeasuredContentHeightRef.current;
+    if (baseline === null) {
+      lastMeasuredContentHeightRef.current = nextHeight;
+      if (isGenuinelyFreshObject && Math.abs(nextHeight - object.height) > 0.5) {
+        usePdfOverlayStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+      }
+    } else if (nextHeight - baseline > 0.5) {
+      lastMeasuredContentHeightRef.current = nextHeight;
+      if (nextHeight - object.height > 0.5) {
+        usePdfOverlayStore.getState().updateObject(object.id, { height: nextHeight }, `text:${object.id}`);
+      }
+    } else if (nextHeight < baseline - 0.5) {
+      lastMeasuredContentHeightRef.current = nextHeight;
     }
   }, [
     object.id,

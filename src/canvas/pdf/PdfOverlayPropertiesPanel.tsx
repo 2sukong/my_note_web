@@ -36,21 +36,21 @@ export function PdfOverlayPropertiesPanel() {
 
   if (object.type === 'text') {
     return (
-      <PanelShell title="텍스트" onClose={deselect}>
+      <PanelShell title="텍스트" onClose={deselect} panelKey={`pdfoverlay:${selectedId}`}>
         <PdfOverlayTextSection object={object as TextObject} update={update} />
       </PanelShell>
     );
   }
   if (object.type === 'arrow') {
     return (
-      <PanelShell title="화살표" onClose={deselect}>
+      <PanelShell title="화살표" onClose={deselect} panelKey={`pdfoverlay:${selectedId}`}>
         <ArrowSection object={object as ArrowObject} update={update} />
       </PanelShell>
     );
   }
   if (object.type === 'rectangle') {
     return (
-      <PanelShell title="사각형" onClose={deselect}>
+      <PanelShell title="사각형" onClose={deselect} panelKey={`pdfoverlay:${selectedId}`}>
         <RectangleSection object={object as ShapeObject} update={update} />
       </PanelShell>
     );

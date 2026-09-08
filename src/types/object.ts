@@ -66,13 +66,20 @@ export interface TextObject extends BaseObject {
   /**
    * 버그 수정(리사이즈로 상자를 내용보다 작게 줄여도 새로고침하면 다시 커짐):
    * 사용자가 리사이즈 핸들로 세로 크기를 직접 정한 적이 있으면 true — 컴포넌트가
-   * 리마운트되면 초기화되는 React ref(TextObjectView.tsx의 hasAutoFitHeightOnceRef)와
-   * 달리 객체 자체에 저장되므로 새로고침에도 살아남는다. true가 되면 그때부터는
-   * TextObjectView.tsx의 "내용에 맞춰 자동으로 커지는" 로직이 이 객체에는 더 이상
-   * 적용되지 않고, height는 전적으로 사용자가 리사이즈한 값 그대로 유지된다
-   * (store/objectsStore.ts의 resizeObjectTo가 세운다. 세로 크기가 실제로 바뀌는
-   * 리사이즈에서만 true로 세팅되고, 한 번 true가 되면 계속 true다 — 다시 지워지는
-   * 경우는 없다). undefined/false는 기존 동작(자동 높이 활성)과 동일하다(하위 호환).
+   * 리마운트되면 초기화되는 React ref(TextObjectView.tsx의
+   * lastMeasuredContentHeightRef)와 달리 객체 자체에 저장되므로 새로고침에도
+   * 살아남는다(store/objectsStore.ts의 resizeObjectTo가 세운다. 세로 크기가 실제로
+   * 바뀌는 리사이즈에서만 true로 세팅되고, 한 번 true가 되면 계속 true다 — 다시
+   * 지워지는 경우는 없다).
+   *
+   * 정확한 효과: TextObjectView.tsx의 자동 높이 로직을 통째로 끄는 게 아니다(그렇게
+   * 했다가 리사이즈 후 가로 폭을 더 줄이면 글자가 넘쳐도 상자가 안 자라는 별개
+   * 버그가 났었다 — 2026-09 커밋 6901e73/그 되돌림 참고). 대신 "생성된 뒤 한 번도
+   * 수정된 적 없는 진짜 새 객체의 아주 첫 측정에 한해 내용에 맞춰 줄어들 수도 있는"
+   * 예외에서만 제외시킨다 — 그 뒤로도 콘텐츠가 실제로 더 커지면(타이핑/폰트 변경/
+   * 줄바꿈 증가 등) 여전히 자동으로 큰다. 즉 이 값이 지켜주는 건 "콘텐츠 양이
+   * 그대로인데 사용자가 상자만 줄인 경우 그 크기가 유지되는 것"뿐이다. undefined/
+   * false는 기존 동작(자동 높이 활성)과 동일하다(하위 호환).
    */
   manualHeight?: boolean;
 }

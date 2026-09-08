@@ -95,7 +95,11 @@ export function PropertiesPanel() {
     const highlight = line?.highlights?.find((h) => h.id === fineSelection.id);
     if (!highlight) return null;
     return (
-      <PanelShell title="형광펜" onClose={deselect}>
+      <PanelShell
+        title="형광펜"
+        onClose={deselect}
+        panelKey={`highlight:${fineSelection.objectId}:${fineSelection.lineId}:${fineSelection.id}`}
+      >
         <HighlightSection
           color={highlight.color}
           onChange={(color) =>
@@ -114,7 +118,11 @@ export function PropertiesPanel() {
     const annotation = line?.annotations?.find((a) => a.id === fineSelection.id);
     if (!annotation) return null;
     return (
-      <PanelShell title="주석" onClose={deselect}>
+      <PanelShell
+        title="주석"
+        onClose={deselect}
+        panelKey={`annotation:${fineSelection.objectId}:${fineSelection.lineId}:${fineSelection.id}`}
+      >
         <AnnotationSection
           color={annotation.color ?? 'red'}
           onChange={(color) =>
@@ -148,28 +156,28 @@ export function PropertiesPanel() {
 
     if (object.type === 'text') {
       return (
-        <PanelShell title="텍스트" onClose={deselect}>
+        <PanelShell title="텍스트" onClose={deselect} panelKey={`object:${object.id}`}>
           <TextSection object={object} update={update} />
         </PanelShell>
       );
     }
     if (object.type === 'arrow') {
       return (
-        <PanelShell title="화살표" onClose={deselect}>
+        <PanelShell title="화살표" onClose={deselect} panelKey={`object:${object.id}`}>
           <ArrowSection object={object} update={update} />
         </PanelShell>
       );
     }
     if (object.type === 'rectangle') {
       return (
-        <PanelShell title="사각형" onClose={deselect}>
+        <PanelShell title="사각형" onClose={deselect} panelKey={`object:${object.id}`}>
           <RectangleSection object={object} update={update} />
         </PanelShell>
       );
     }
     if (object.type === 'frame') {
       return (
-        <PanelShell title="프레임" onClose={deselect}>
+        <PanelShell title="프레임" onClose={deselect} panelKey={`object:${object.id}`}>
           <FrameSection object={object} update={update} />
         </PanelShell>
       );
@@ -200,28 +208,28 @@ export function PropertiesPanel() {
 
     if (representative.type === 'text') {
       return (
-        <PanelShell title="텍스트" onClose={deselect}>
+        <PanelShell title="텍스트" onClose={deselect} panelKey={`multi:${selectedIds.slice().sort().join(',')}`}>
           <TextSection object={representative} update={updateAll} />
         </PanelShell>
       );
     }
     if (representative.type === 'arrow') {
       return (
-        <PanelShell title="화살표" onClose={deselect}>
+        <PanelShell title="화살표" onClose={deselect} panelKey={`multi:${selectedIds.slice().sort().join(',')}`}>
           <ArrowSection object={representative} update={updateAll} />
         </PanelShell>
       );
     }
     if (representative.type === 'rectangle') {
       return (
-        <PanelShell title="사각형" onClose={deselect}>
+        <PanelShell title="사각형" onClose={deselect} panelKey={`multi:${selectedIds.slice().sort().join(',')}`}>
           <RectangleSection object={representative} update={updateAll} />
         </PanelShell>
       );
     }
     if (representative.type === 'frame') {
       return (
-        <PanelShell title="프레임" onClose={deselect}>
+        <PanelShell title="프레임" onClose={deselect} panelKey={`multi:${selectedIds.slice().sort().join(',')}`}>
           <FrameSection object={representative} update={updateAll} />
         </PanelShell>
       );
@@ -235,42 +243,42 @@ export function PropertiesPanel() {
   if (selectedIds.length === 0) {
     if (activeTool === 'text') {
       return (
-        <PanelShell title="텍스트" onClose={() => setTool('select')}>
+        <PanelShell title="텍스트" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <TextDefaultsSection />
         </PanelShell>
       );
     }
     if (activeTool === 'highlight') {
       return (
-        <PanelShell title="형광펜" onClose={() => setTool('select')}>
+        <PanelShell title="형광펜" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <HighlightDefaultsSection />
         </PanelShell>
       );
     }
     if (activeTool === 'annotation') {
       return (
-        <PanelShell title="주석" onClose={() => setTool('select')}>
+        <PanelShell title="주석" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <AnnotationDefaultsSection />
         </PanelShell>
       );
     }
     if (activeTool === 'arrow') {
       return (
-        <PanelShell title="화살표" onClose={() => setTool('select')}>
+        <PanelShell title="화살표" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <ArrowDefaultsSection />
         </PanelShell>
       );
     }
     if (activeTool === 'rectangle') {
       return (
-        <PanelShell title="사각형" onClose={() => setTool('select')}>
+        <PanelShell title="사각형" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <RectangleDefaultsSection />
         </PanelShell>
       );
     }
     if (activeTool === 'frame') {
       return (
-        <PanelShell title="프레임" onClose={() => setTool('select')}>
+        <PanelShell title="프레임" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <FrameDefaultsSection />
         </PanelShell>
       );
@@ -284,10 +292,39 @@ export function PropertiesPanel() {
  * 닫히는 규칙(.canvas-root/.properties-dropdown-list/.properties-color-popover 예외)이
  * PDF 오버레이 선택에도 동일하게 맞기 때문에(PDF Viewer도 .canvas-root 안에 있다),
  * 새로 만들지 않고 export해서 공유한다. */
-export function PanelShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+/** [수동 닫기(X), 2026-09-08] panelKey는 "지금 어떤 대상의 패널이 열려 있는지"를
+ * 식별하는 문자열이다(선택된 객체 id, fineSelection id, 또는 activeTool 이름 등 —
+ * 각 호출부에서 전달). X를 누르면 closedKey에 그 순간의 panelKey를 저장해 패널을
+ * 숨기지만, onClose(선택 해제/도구 전환)는 호출하지 않으므로 선택 상태 자체는 그대로
+ * 유지된다. 이후 다른 객체/메뉴가 선택되어 panelKey가 달라지면(예: 다른 객체 클릭),
+ * 아래 렌더 중 비교에서 closedKey가 새 panelKey와 더 이상 일치하지 않으므로 자동으로
+ * 다시 열린다 — "X로 닫아도 새 선택/메뉴가 열리면 그건 무시하고 새로 뜬다"는 요구사항. */
+export function PanelShell({
+  title,
+  onClose,
+  panelKey,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  panelKey: string;
+  children: React.ReactNode;
+}) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const [closedKey, setClosedKey] = useState<string | null>(null);
+
+  // panelKey가 바뀌었다는 것은 다른 객체/메뉴가 열렸다는 뜻이므로, 이전에 X로
+  // 닫아뒀던 상태를 리렌더 도중에 즉시 리셋한다(useEffect보다 한 프레임 빠르고,
+  // 닫힌 패널이 잠깐 보였다 사라지는 깜빡임도 없다).
+  const prevPanelKeyRef = useRef(panelKey);
+  if (prevPanelKeyRef.current !== panelKey) {
+    prevPanelKeyRef.current = panelKey;
+    if (closedKey !== null) setClosedKey(null);
+  }
+  const isManuallyClosed = closedKey === panelKey;
 
   useEffect(() => {
+    if (isManuallyClosed) return;
     function handlePointerDown(e: PointerEvent) {
       if (!panelRef.current || panelRef.current.contains(e.target as Node)) return;
       // 버그 수정: 캔버스(.canvas-root) 내부 클릭은 자체 핸들러(배경 클릭으로 프레임/
@@ -315,12 +352,22 @@ export function PanelShell({ title, onClose, children }: { title: string; onClos
     }
     window.addEventListener('pointerdown', handlePointerDown);
     return () => window.removeEventListener('pointerdown', handlePointerDown);
-  }, [onClose]);
+  }, [onClose, isManuallyClosed]);
+
+  if (isManuallyClosed) return null;
 
   return (
     <div className="properties-panel" ref={panelRef}>
       <div className="properties-panel-header">
         <span>{title} 스타일</span>
+        <button
+          type="button"
+          className="properties-panel-close"
+          onClick={() => setClosedKey(panelKey)}
+          aria-label="닫기"
+        >
+          <CloseIcon size={12} />
+        </button>
       </div>
       <div className="properties-panel-body">{children}</div>
     </div>
@@ -428,7 +475,11 @@ export function Dropdown<T extends string | number>({
         className="properties-select properties-dropdown-trigger"
         onClick={() => setOpen((o) => !o)}
       >
-        <span>{labelOf(value)}</span>
+        {/* 요구사항(회색 카드 폭 통일): 트리거가 86px 고정폭으로 좁아지면서(CSS 참고)
+            라벨이 길면 ellipsis로 잘릴 수 있어 title로 전체 값을 hover 툴팁으로 남긴다. */}
+        <span className="properties-dropdown-trigger-label" title={labelOf(value)}>
+          {labelOf(value)}
+        </span>
         <ChevronDownIcon />
       </button>
       {open &&
@@ -545,7 +596,12 @@ function FontDropdown({ currentFamily, onPick }: { currentFamily: string; onPick
         className="properties-select properties-dropdown-trigger"
         onClick={() => setOpen((o) => !o)}
       >
-        <span style={{ fontFamily: currentFamily }}>{currentLabel}</span>
+        {/* 요구사항(회색 카드 폭 통일): 폰트 이름이 86px 트리거 폭보다 길면 ellipsis로
+            잘리므로 title로 전체 이름을 hover 툴팁으로 남긴다 — 사용자가 폰트 이름을
+            직접 짧게 바꿔 저장할 수도 있다고 확인함(useFontStore 폰트 관리 참고). */}
+        <span className="properties-dropdown-trigger-label" style={{ fontFamily: currentFamily }} title={currentLabel}>
+          {currentLabel}
+        </span>
         <ChevronDownIcon />
       </button>
       {open &&
