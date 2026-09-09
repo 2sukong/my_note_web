@@ -66,13 +66,36 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: 4px;
-  padding: 5px;
+  /* 요구사항(2026-09-09, 손잡이 오른쪽 이동): padding을 gap과 같은 4px로 맞췄다(기존
+     5px) — 그래야 맨 끝(오른쪽)에 새로 옮긴 손잡이와 카드 테두리 사이 여백이 다른
+     아이콘들 사이 여백(gap)과 정확히 같아 보인다. */
+  padding: 4px;
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-panel);
   font-family: system-ui, sans-serif;
   max-width: calc(100vw - 24px);
+}
+
+/* 요구사항(상단 메뉴 카드 드래그 이동, 2026-09-09): 카드 자체가 아니라 이 손잡이만
+   잡고 끌 수 있게 한다(오조작 방지) — Toolbar.tsx가 pointerdown/move/up을 여기에만
+   건다. touch-action:none은 Canvas.css의 canvas-root와 같은 이유(드래그 중 브라우저의
+   기본 터치 스크롤/제스처가 끼어들지 않게). */
+.canvas-toolbar-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 34px;
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+  cursor: grab;
+  touch-action: none;
+}
+
+.canvas-toolbar-handle:active {
+  cursor: grabbing;
 }
 
 .canvas-toolbar-btn {

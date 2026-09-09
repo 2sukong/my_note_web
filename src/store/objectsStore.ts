@@ -207,8 +207,11 @@ interface ObjectsState {
   updateAnnotationFontFamily: (objectId: string, lineId: string, annotationId: string, fontFamily: string) => void;
   /** 요구사항(주석 크기 조절): 이미 만들어진 주석 하나의 글자 크기만 바꾼다 — updateAnnotationFontFamily와 동일한 원리. */
   updateAnnotationFontSize: (objectId: string, lineId: string, annotationId: string, fontSize: number) => void;
-  /** Annotation을 드래그해서 옮길 때 offsetX만 갱신한다(anchor/start/end는 그대로 — target Text와의 연결 유지). */
-  updateAnnotationOffset: (objectId: string, lineId: string, annotationId: string, offsetX: number) => void;
+  /** Annotation을 드래그해서 옮길 때 offsetX/offsetY를 갱신한다(anchor/start/end는 그대로
+   * — target Text와의 연결 유지). 요구사항(2026-09-09, 주석 아래 배치): 가로 드래그와
+   * 세로 드래그가 동시에 진행될 수 있어(AnnotationBubble.tsx의 pointermove가 dx/dy를
+   * 함께 계산) 두 값을 항상 같이 반영한다. */
+  updateAnnotationOffset: (objectId: string, lineId: string, annotationId: string, offsetX: number, offsetY: number) => void;
   removeAnnotation: (objectId: string, lineId: string, annotationId: string) => void;
   /** 주석 자기 자신의 텍스트 일부에 형광펜을 추가한다(본문 addHighlightSegments와 같은 원리, 대상만 annotation.text). */
   addAnnotationHighlight: (
@@ -563,11 +566,11 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
           }),
         })), `annotation-text:${objectId}:${lineId}:${annotationId}`),
 
-    updateAnnotationOffset: (objectId, lineId, annotationId, offsetX) =>
+    updateAnnotationOffset: (objectId, lineId, annotationId, offsetX, offsetY) =>
       mutate((draft) =>
         updateLineIn(draft, objectId, lineId, (line) => ({
           ...line,
-          annotations: (line.annotations ?? []).map((a) => (a.id === annotationId ? { ...a, offsetX } : a)),
+          annotations: (line.annotations ?? []).map((a) => (a.id === annotationId ? { ...a, offsetX, offsetY } : a)),
         })), `annotation-offset:${objectId}:${lineId}:${annotationId}`),
 
     addAnnotationHighlight: (objectId, lineId, annotationId, start, end, color) =>

@@ -8,6 +8,11 @@ import { useFontStore } from '../../store/fontStore';
 import { highlightBackgroundFor } from './highlightColors';
 import { annotationVisualsFor } from './annotationColors';
 import { DEFAULT_FONT_FAMILY } from './fontOptions';
+import {
+  ANNOTATION_TOTAL_GAP_BASE,
+  snapAnnotationOffsetY,
+  isAnnotationBelowAnchor,
+} from './annotationLayout';
 
 /**
  * 요구사항 5번: 아래 상수들은 모두 "텍스트 크기 16px일 때" 보기 좋게 튜닝된
@@ -17,27 +22,9 @@ import { DEFAULT_FONT_FAMILY } from './fontOptions';
  * (컴포넌트 본문의 scaled* 값들). "_BASE"가 붙지 않은 예전 이름 그대로 쓰던
  * 곳은 없는지 확인할 것 — 실수로 원본 상수를 직접 쓰면 다시 고정 크기로 되돌아간다.
  */
-/** 화살표가 붙는 기준선(텍스트 쪽 끝)에서 말풍선 "박스" 바닥까지, 그리고 그 기준선에서
- * 텍스트 맨 위까지의 간격을 합친 값(기준 크기 기준). TextObjectView.tsx의 ANNOTATION_GAP과
- * 반드시 같아야 한다(그래야 줄 위에 확보하는 여백이 실제로 그려지는 말풍선 높이와
- * 어긋나지 않는다). 이 총량을 bubbleGap/tickRise로 어떻게 나누는지는 아래 컴포넌트
- * 본문(textBottomInset 측정 effect)에서 계산한다 — 요구사항: 이 기준선은 "말풍선 박스
- * 바닥"이 아니라 "말풍선 안에 실제로 타이핑된 글자의 가장 아래부분"과 "텍스트의 가장
- * 윗부분" 정가운데 와야 한다. 말풍선 박스는 안쪽에 padding이 있고, 폰트마다 실제 glyph가
- * line-box 안 어디에 놓이는지(ascent/descent)가 달라서 "박스 바닥에서 실제 글자
- * 바닥까지의 거리"를 패딩값 같은 고정 상수로 근사할 수 없다(사용자가 주석에 커스텀
- * 폰트를 고르면 그 거리가 폰트마다 달라진다) — 그래서 이 거리는 계산이 아니라 실제
- * DOM(textElRef vs bubbleRef의 getBoundingClientRect())을 측정해서 구한다. bubbleGap/
- * tickRise의 합은 항상 이 상수와 같게 유지되므로 TextObjectView의 예약 여백 계산과는
- * 계속 어긋나지 않는다.
- *
- * 요구사항(텍스트-주석-텍스트 간격 최소화): 이 값은 화살표 꼬리/화살촉이 글자에
- * 딱 붙어 보이지 않을 최소한의 여백이지, 시각적 "숨 쉴 공간"을 위한 값이 아니다 —
- * 그 역할은 화살표 자신이 이미 한다(글자와 글자 사이에 뭔가 그려져 있으면 붙어
- * 있어도 겹쳐 보이지 않는다). computeBubbleGap의 최소값(0.5*scale)이 bubbleGap의
- * 하한이므로, 이 상수를 그보다 작게 줄이면 tickRise가 음수가 될 수 있어 더는
- * 줄이지 않는다. */
-const ANNOTATION_TOTAL_GAP_BASE = 1;
+/** ANNOTATION_TOTAL_GAP_BASE(주석의 기본 위치가 anchor로부터 얼마나 떨어지는지)와
+ * isAnnotationBelowAnchor(위/아래 판정)는 TextObjectView.tsx도 똑같이 써야 해서
+ * annotationLayout.ts로 뽑아 공유한다 — 자세한 설명은 그 파일의 문서 주석 참고. */
 /** 드래그로 인정하는 최소 이동량(화면 px) — useObjectDrag와 동일한 관례. 포인터
  * 제스처 임계값이라 텍스트 크기와 무관하게 항상 고정이어야 한다(스케일 대상 아님). */
 const DRAG_THRESHOLD_PX = 4;
@@ -59,16 +46,16 @@ const MAX_FONT_SCALE = 2.5;
 
 /**
  * public/annotation-arrow.svg(뷰박스 178x178, 검정 단색 — 원본 130x130 그림을 -30도
- * 회전시켜 다시 내보낸 버전)의 두 끝점을 이 컴포넌트가 고정 상수로 알고 있어야 한다 —
- * 이 두 점을 각각 "드래그한 텍스트의 첫 글자"와 "주석 텍스트의 첫 글자"에 정확히
- * 포개는 변환(아래 similarityTransform)을 계산해야 하기 때문이다. tail은 화살촉 없이
- * 부드럽게 시작하는 꼬리 쪽 끝(경로 데이터 상 약 (29.4, 128.7) — 원문 텍스트를 향한다),
- * head는 화살촉이 뾰족하게 모이는 끝(약 (160.6, 56.4) — 주석 말풍선을 향한다). 이
- * SVG 파일 자체를 다른 모양(다른 회전 각도 포함)으로 교체하면 이 두 좌표도 새 경로에
- * 맞게 다시 잡아야 한다 — 회전만 됐다면 원본 좌표에 같은 회전을 적용해 다시 계산하면
- * 된다(원본 130x130 기준 좌표 (33.5, 129.3)/(111, 1)에 rotate(30°) 후 x축으로 65만큼
- * 평행이동 — 이 파일의 <clipPath> transform과 동일한 변환). */
-const ARROW_LOCAL_TAIL = { x: 29.36, y: 128.74 };
+ * 회전시켜 다시 내보낸 버전)에서 화살촉이 뾰족하게 모이는 끝(경로 데이터 상 약
+ * (160.6, 56.4) — 주석 말풍선을 향한다)의 로컬 좌표를 이 컴포넌트가 고정 상수로
+ * 알고 있어야 한다 — arrowTransformFor가 이 점을 targetHead(주석 텍스트의 첫 글자)에
+ * 정확히 포개는 변환을 계산하기 때문이다. 요구사항(2026-09-09, 기울기 고정) 이후로는
+ * 회전을 아예 하지 않으므로(SVG가 원래 그려진 각도 그대로 고정 스케일만 적용) tail
+ * 쪽 좌표는 더 이상 필요 없다 — 방향 계산 자체가 없어졌기 때문. 이 SVG 파일 자체를
+ * 다른 모양(다른 회전 각도 포함)으로 교체하면 이 좌표도 새 경로에 맞게 다시 잡아야
+ * 한다 — 회전만 됐다면 원본 좌표(원본 130x130 기준 (111, 1))에 같은 회전을 적용해
+ * 다시 계산하면 된다(rotate(30°) 후 x축으로 65만큼 평행이동 — 이 파일의 <clipPath>
+ * transform과 동일한 변환). */
 const ARROW_LOCAL_HEAD = { x: 160.63, y: 56.37 };
 /** annotation-arrow.svg 자체의 뷰박스 한 변(정사각형, 178x178). */
 const ARROW_SVG_SIZE = 178;
@@ -107,44 +94,47 @@ const ARROW_HEAD_EDGE_GAP_BASE = 1.5;
  */
 export const DEFAULT_ANNOTATION_OFFSET_X_BASE = 11;
 
-/** bottomInset(말풍선 박스 바닥→실제 글자 바닥 거리) 실측값으로부터 bubbleGap을 계산한다.
- * 렌더 본문과 화살표 목표점을 구하는 측정 effect 양쪽이 반드시 같은 공식을 써야
- * 한다(다르면 화살표 끝점이 말풍선 위치와 한 프레임씩 어긋나 보일 수 있다) — 그래서
- * 함수 하나로 뽑아 공유한다. */
-function computeBubbleGap(totalGap: number, bottomInset: number, scale: number): number {
-  return Math.max(0.5 * scale, (totalGap - bottomInset) / 2);
-}
+/**
+ * 요구사항(2026-09-09, 화살표 크기 고정): 예전엔 화살표의 두 끝(tail/head)을 모두
+ * targetTail/targetHead에 정확히 포개도록 스케일을 "두 목표점 사이 거리 / 원본 로컬
+ * 길이"로 역산했다 — 그래서 주석을 텍스트에서 멀리 드래그할수록 화살표가 계속
+ * 커지는 버그가 있었다(이번에 고치는 대상). 이제는 스케일이 드래그 거리와 무관하게
+ * 텍스트 크기(scale, fontScale 기반)에만 비례하는 고정값이고, head 한 점만 정확히
+ * targetHead(주석 말풍선 쪽 목표점)에 맞춘다 — tail은 더는 원문 텍스트에 정확히
+ * 닿을 필요가 없다는 요구사항 그대로, 그냥 고정된 방향·크기로 자연스럽게 뻗어나간
+ * 자리에 놓인다. 아래 기본값(0.11)은 "생성 직후 기본 위치(오프셋 없음, scale=1)"에서
+ * 예전 거리 기반 스케일이 만들어내던 크기와 비슷하게 역산한 근사치다(주석
+ * DEFAULT_ANNOTATION_OFFSET_X_BASE의 역산 과정 참고 — 그 때의 dx≈14.6, dy≈8 기준
+ * targetLen≈16.6, localLen≈149.9이므로 16.6/149.9≈0.111) — 실제 화면에서 살짝
+ * 다르게 보이면(직접 렌더링해서 확인할 수 없어 근사치다) 이 값만 조정하면 된다. */
+const ARROW_SCALE_BASE = 0.11;
 
 /**
- * local(=ARROW_LOCAL_TAIL/HEAD가 속한 130x130 SVG 좌표계) 두 점을 world(=이 컴포넌트가
- * 쓰는 캔버스 로컬 px, anchor.left/top과 같은 좌표계) 두 점에 정확히 포개는 2D 강체
- * 유사변환(회전 + 등배율 스케일 + 평행이동, CSS matrix(a,b,c,d,e,f) 형식)을 구한다.
- * 두 점 대응만으로 완전히 결정되는 변환이라 tail→targetTail, head→targetHead가 항상
- * 정확히 일치한다("화살표 양 끝이 정확히 목표 지점을 가리켜야 한다"는 요구사항) —
- * 그러면서도 등배율 스케일만 쓰므로(가로/세로를 따로 늘이지 않으므로) 원본 손그림의
- * 곡선 비율이 찌그러지지 않는다. 두 목표점이 사실상 같은 위치(거리 0)면 방향을 정할
- * 수 없어 변환을 정의할 수 없으므로 null을 반환한다(이 경우 화살표를 그리지 않는다). */
-function similarityTransform(
-  targetTail: { x: number; y: number },
+ * 요구사항(2026-09-09, 사용자 피드백 — "주석 위치를 옮기면 화살표 기울기가 달라짐,
+ * 기울기도 일정해야 한다"): 이전 버전은 스케일만 고정하고 회전각은 여전히 anchor→
+ * targetHead 방향으로 매 렌더 다시 계산했다 — 그래서 드래그로 위치가 바뀔 때마다
+ * 화살표가 같이 돌아가 "기울기가 계속 바뀌는" 것처럼 보였다(사용자가 지적한 버그).
+ * 이제는 회전을 아예 계산하지 않는다 — annotation-arrow.svg가 원래 그려진 그대로의
+ * 각도(회전 0)로 고정 스케일만 적용하고, head(주석 말풍선 쪽 목표점)만 정확히
+ * targetHead에 맞춘다(tail은 원문 텍스트에 정확히 닿을 필요가 없다는 기존 요구사항
+ * 그대로 — 방향 계산 자체가 사라졌으니 tail 좌표는 이제 아예 쓰지 않는다).
+ *
+ * flip=true면(요구사항: "텍스트 아래로 이동하면 저장된 화살표 SVG를 상하반전한
+ * 형태여야 함") 로컬 y축 부호만 뒤집는다(d = -fixedScale) — 순수한 수직 반사만
+ * 적용되고 회전 성분이 전혀 섞이지 않으므로, 원본 SVG를 그대로 위아래로 뒤집어
+ * 붙인 모양이 정확히 나온다(전에는 "회전각 + 반사"가 뒤섞여 약 90도 기울어진 것처럼
+ * 보이는 버그가 있었다 — 회전 자체를 없앤 지금은 그럴 여지가 없다). */
+function arrowTransformFor(
   targetHead: { x: number; y: number },
-): { a: number; b: number; c: number; d: number; e: number; f: number } | null {
-  const localDx = ARROW_LOCAL_HEAD.x - ARROW_LOCAL_TAIL.x;
-  const localDy = ARROW_LOCAL_HEAD.y - ARROW_LOCAL_TAIL.y;
-  const targetDx = targetHead.x - targetTail.x;
-  const targetDy = targetHead.y - targetTail.y;
-  const localLen = Math.hypot(localDx, localDy);
-  const targetLen = Math.hypot(targetDx, targetDy);
-  if (localLen < 1e-6 || targetLen < 1e-6) return null;
-  const scale = targetLen / localLen;
-  const angle = Math.atan2(targetDy, targetDx) - Math.atan2(localDy, localDx);
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const a = scale * cos;
-  const b = scale * sin;
-  const c = -scale * sin;
-  const d = scale * cos;
-  const e = targetTail.x - (a * ARROW_LOCAL_TAIL.x + c * ARROW_LOCAL_TAIL.y);
-  const f = targetTail.y - (b * ARROW_LOCAL_TAIL.x + d * ARROW_LOCAL_TAIL.y);
+  fixedScale: number,
+  flip: boolean,
+): { a: number; b: number; c: number; d: number; e: number; f: number } {
+  const a = fixedScale;
+  const b = 0;
+  const c = 0;
+  const d = flip ? -fixedScale : fixedScale;
+  const e = targetHead.x - a * ARROW_LOCAL_HEAD.x;
+  const f = targetHead.y - d * ARROW_LOCAL_HEAD.y;
   return { a, b, c, d, e, f };
 }
 
@@ -169,6 +159,11 @@ interface AnnotationBubbleProps {
     left: number;
     /** 구간의 맨 위 — 화살표가 가리키는 "드래그한 텍스트의 첫 글자" 지점의 y좌표. */
     top: number;
+    /** 요구사항(2026-09-09 2차 수정 — 텍스트 아래로 옮긴 주석이 anchor 자신의 글자와
+     * 겹치는 버그): 구간의 실제 렌더 높이. "아래" 배치는 이 높이만큼 anchor.top에서
+     * 더 내려간 지점(=이 글자의 실제 바닥)부터 시작해야 anchor 자신의 글자를 덮지
+     * 않는다 — "위" 배치는 anchor.top에서 위로만 띄우므로 이 값이 필요 없다. */
+    height: number;
   };
   /** 현재 말풍선이 실제로 그려질 위치(anchor.left + offsetX를 target Text 범위로 clamp한 값). */
   left: number;
@@ -201,8 +196,11 @@ interface AnnotationBubbleProps {
    * 삭제"와 달리, 이건 애초에 지울 텍스트조차 없어서 input 이벤트 자체가 안 나는
    * 경우라 별도 경로가 필요하다. */
   onCancelEmpty: () => void;
-  /** 드래그로 offsetX가 바뀔 때마다 호출(라이브 미리보기). 이미 clamp된 world px 값. */
-  onDragOffsetChange: (offsetX: number) => void;
+  /** 드래그로 offsetX/offsetY가 바뀔 때마다 호출(라이브 미리보기). offsetX는 이미
+   * clamp된 world px 값이고, offsetY는 이 컴포넌트가 snapAnnotationOffsetY로 미리
+   * 스냅한 두 값(0 또는 totalGap*ANNOTATION_OFFSET_Y_BELOW_MULTIPLIER) 중 하나다
+   * (요구사항: 상하 이진 스냅 — TextObjectView.tsx는 그대로 전달만 한다). */
+  onDragOffsetChange: (offsetX: number, offsetY: number) => void;
   /** 이 말풍선이 실제로 렌더링된 높이(월드 px)가 바뀔 때마다 호출 — 부모가 줄 위 여백을 계산하는 데 쓴다. */
   onHeightChange: (height: number) => void;
 }
@@ -262,34 +260,38 @@ export function AnnotationBubble({
   const bubblePaddingX = BUBBLE_PADDING_X_BASE * scale * sizeMultiplier;
   const bubblePaddingY = BUBBLE_PADDING_Y_BASE * scale * sizeMultiplier;
   const bubbleFontSize = BUBBLE_FONT_SIZE_BASE * scale * sizeMultiplier;
-  // 화살표가 붙는 기준선(과거엔 밑줄 자체였던 자리)까지의 총 여백. bottomInset(아래)에
-  // 따라 bubbleGap/tickRise로 나뉘는데, 그 계산에 필요한 값이라 bottomInset 실측
-  // effect보다 먼저 선언한다.
+  // 화살표가 붙는 기준선(과거엔 밑줄 자체였던 자리)까지의 총 여백 — "위" 기본
+  // 위치가 anchor.top에서 얼마나 떨어지는지, "아래" 기본 위치가 anchor의 실제 바닥
+  // (anchor.top + anchor.height)에서 얼마나 떨어지는지, 그리고 offsetY 축 위/아래
+  // 판정 기준점(snapAnnotationOffsetY/isAnnotationBelowAnchor)에 쓰인다. anchor.height는
+  // offsetY 판정 자체와는 무관하다(그 판정은 순수하게 offsetY/scale만 본다) — 오직
+  // 실제 렌더 위치(아래 top/boxTopLocal/clip 계산)에서만 쓰인다.
   const totalGap = ANNOTATION_TOTAL_GAP_BASE * scale;
+  // 요구사항(2026-09-09, 사용자 확인 — "이진법처럼 텍스트 위, 텍스트 아래로만 이동이
+  // 가능하고 각각에서 더 움직일 수 있는 범위는 없음"): offsetY는 이제 자유 연속값이
+  // 아니라 정확히 두 값(0="위" 기본 위치, totalGap*ANNOTATION_OFFSET_Y_BELOW_MULTIPLIER
+  // ="아래" 기본 위치) 중 하나로만 저장된다 — 드래그 중 스냅 로직은 아래 핸들러
+  // 참고(snapAnnotationOffsetY). 구버전 데이터(필드 자체가 없음)는 0(=기존과 동일한
+  // "위" 위치)으로 취급되어 완전히 하위 호환된다.
+  const offsetY = annotation.offsetY ?? 0;
+  const isBelow = isAnnotationBelowAnchor(offsetY, scale);
 
   const bubbleRef = useRef<HTMLDivElement>(null);
   const textElRef = useRef<HTMLDivElement>(null);
-  // 말풍선 "박스" 바닥에서 안에 실제로 타이핑된 글자의 진짜 바닥까지의 거리(world px) —
-  // 커스텀 폰트마다 ascent/descent가 달라 고정 상수로 근사할 수 없으므로, 아래 layout
-  // effect에서 textElRef(실제 글자만) vs bubbleRef(패딩 포함 박스) 두 DOM 요소의
-  // getBoundingClientRect()를 직접 비교해 실측한다. 처음 마운트되어 아직 측정 전인
-  // 프레임에는 bubblePaddingY를 잠정값으로 쓴다(useLayoutEffect가 페인트 전에 정확한
-  // 값으로 다시 렌더링하므로 화면에 잘못된 값이 보이는 순간은 없다).
-  const [measuredBottomInset, setMeasuredBottomInset] = useState<number | null>(null);
-  const lastMeasuredBottomInsetRef = useRef<number | null>(null);
-  const bottomInset = measuredBottomInset ?? bubblePaddingY;
+  // 말풍선 자신의 마지막으로 실측된 렌더 높이(world px) — 아래 높이 측정 effect가
+  // 매 렌더 채운다(useRef라 그 자체로는 재렌더를 트리거하지 않는다). "위/아래 두 곳
+  // 중 하나"로 위치가 고정된 지금은 실제 박스 위치(아래 style) 계산에는 필요 없고
+  // (translateY 트릭으로 CSS가 알아서 실제 높이만큼 밀어 올려주므로), 화살표가 이웃
+  // 줄로 삐져나가지 않게 하는 클리핑 창(clipHeight, 아래) 계산에만 근사치로 쓴다 —
+  // 클리핑은 안전장치일 뿐이라 한 프레임 지연되는 근사값으로도 충분하다. */
+  const lastReportedHeightRef = useRef(0);
+  const approxBubbleHeight = lastReportedHeightRef.current || BUBBLE_FONT_SIZE_BASE * 1.4 * scale;
   // 화살표가 가리킬 "주석 텍스트의 첫 글자" 목표점(로컬 좌표, anchor.left/top과 같은
   // 좌표계) — 아래 effect가 실측해서 채운다. 처음 마운트되어 아직 측정 전이면 null이고,
   // 그동안은 화살표를 그리지 않는다(잘못된 위치로 잠깐 보였다 튀는 것을 막기 위함 —
   // useLayoutEffect라 페인트 전에 채워지므로 실제로는 깜빡임이 없다).
   const [arrowHeadLocal, setArrowHeadLocal] = useState<{ x: number; y: number } | null>(null);
   const lastArrowHeadLocalRef = useRef<{ x: number; y: number } | null>(null);
-  // 화살표가 절대 벗어나면 안 되는 위쪽 경계(로컬 y) — 말풍선 박스 자신의 렌더 top.
-  // 이 값보다 위는 이전 줄의 영역이라 화살표(특히 손그림 특유의 고리)가 그 쪽으로
-  // 삐져나가면 다른 줄 텍스트와 겹친다. 아래 effect가 실측해서 채우고, 렌더에서
-  // 이 값~anchor.top 구간으로 화살표 레이어를 overflow:hidden 클리핑한다.
-  const [bubbleTopLocal, setBubbleTopLocal] = useState<number | null>(null);
-  const lastBubbleTopLocalRef = useRef<number | null>(null);
 
   useLayoutEffect(() => {
     const bubbleEl = bubbleRef.current;
@@ -298,11 +300,12 @@ export function AnnotationBubble({
     const zoom = useViewportStore.getState().zoom;
     const bubbleRect = bubbleEl.getBoundingClientRect();
     const textRect = textEl.getBoundingClientRect();
-    const inset = (bubbleRect.bottom - textRect.bottom) / zoom;
-    if (lastMeasuredBottomInsetRef.current === null || Math.abs(inset - lastMeasuredBottomInsetRef.current) > 0.25) {
-      lastMeasuredBottomInsetRef.current = inset;
-      setMeasuredBottomInset(inset);
-    }
+    // 박스의 실제 렌더 top(로컬 좌표)을 이 자리에서 직접 구한다 — "위" 배치는 CSS의
+    // translateY(-100%) 트릭으로 박스 바닥이 anchor.top - totalGap에 오도록 그려지므로
+    // (렌더 스타일 참고), 그 실제 렌더 높이(bubbleRect.height, 지금 막 실측됨)를 빼면
+    // top을 정확히 얻는다. "아래" 배치는 애초에 top 자체가 CSS 값(anchor.top + totalGap)
+    // 그대로라 실측이 필요 없다.
+    const boxTopLocal = isBelow ? anchor.top + anchor.height + totalGap : anchor.top - totalGap - bubbleRect.height / zoom;
 
     // 요구사항: 화살촉의 "방향"은 첫 글자의 세로 중심을 향해야 하지만(예전처럼 글자
     // 위쪽 여백을 가리키면 안 됨), 목표점 자체를 글자 정중앙(내부)으로 잡으면 화살촉
@@ -325,60 +328,37 @@ export function AnnotationBubble({
     }
     const edgeGap = ARROW_HEAD_EDGE_GAP_BASE * scale * zoom; // 화면 px 기준으로 뺄 값이라 zoom을 곱한다.
 
-    // 화살표의 목표점을 로컬 좌표로 역산한다. 말풍선 박스의 CSS top은
-    // translateY(-100%)로 "박스 바닥"을 기준 삼아 정해지므로, 방금 구한 inset으로
-    // bubbleGap/tickRise를 다시 계산해 "박스 좌상단"의 로컬 좌표를 얻고, 거기에
-    // charRect(첫 글자)와 bubbleEl 사이의 화면 픽셀 델타(/zoom)를 더해 목표점의
-    // 로컬 좌표를 얻는다. state(bottomInset)가 아니라 방금 구한 inset을 바로 쓰는
-    // 이유: 이 프레임에서 막 갱신될 값이라 한 프레임 지연 없이 정확한 좌표를 즉시
-    // 얻기 위함이다.
-    const bubbleGapNow = computeBubbleGap(totalGap, inset, scale);
-    const tickRiseNow = totalGap - bubbleGapNow;
-    const bubbleTopLocalNow = anchor.top - tickRiseNow - bubbleGapNow - bubbleRect.height / zoom;
+    // 화살표의 목표점(head)을 로컬 좌표로 역산한다. boxTopLocal(방금 구함)에
+    // charRect(첫 글자)와 bubbleEl 사이의 화면 픽셀 델타(/zoom)를 더하면 된다.
     const nextArrowHead = {
       x: left + (charRect.left - edgeGap - bubbleRect.left) / zoom,
-      y: bubbleTopLocalNow + (charRect.top + charRect.height / 2 - bubbleRect.top) / zoom,
+      y: boxTopLocal + (charRect.top + charRect.height / 2 - bubbleRect.top) / zoom,
     };
     const prevHead = lastArrowHeadLocalRef.current;
     if (!prevHead || Math.hypot(nextArrowHead.x - prevHead.x, nextArrowHead.y - prevHead.y) > 0.25) {
       lastArrowHeadLocalRef.current = nextArrowHead;
       setArrowHeadLocal(nextArrowHead);
     }
-    if (lastBubbleTopLocalRef.current === null || Math.abs(bubbleTopLocalNow - lastBubbleTopLocalRef.current) > 0.25) {
-      lastBubbleTopLocalRef.current = bubbleTopLocalNow;
-      setBubbleTopLocal(bubbleTopLocalNow);
-    }
     // annotation.fontFamily(주석 자신의 글꼴 — ascent/descent가 폰트마다 다름)가 바뀌면
     // 반드시 다시 측정해야 한다. 나머지 deps는 아래 높이 측정 effect와 같은 이유
-    // (내용/폭/편집 상태/본문 fontScale이 바뀌면 레이아웃이 바뀔 수 있음). anchor.top/left는
-    // 화살표 목표점 계산에 직접 쓰이므로 반드시 deps에 있어야 한다(드래그/줄바꿈 등으로
-    // 바뀔 때마다 다시 측정).
+    // (내용/폭/편집 상태/본문 fontScale이 바뀌면 레이아웃이 바뀔 수 있음). anchor.top/left,
+    // offsetY/isBelow(boxTopLocal이 이 effect 안에서 이 값들로부터 파생됨)는 화살표
+    // 목표점 계산에 직접 쓰이므로 반드시 deps에 있어야 한다(드래그로 위/아래가
+    // 바뀌거나 줄바꿈 등으로 바뀔 때마다 다시 측정).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [annotation.text, annotation.fontFamily, annotation.fontSize, maxWidth, isEditing, fontScale, anchor.top, left, customFonts]);
+  }, [annotation.text, annotation.fontFamily, annotation.fontSize, maxWidth, isEditing, fontScale, anchor.top, left, offsetY, isBelow, customFonts]);
 
-  // 말풍선이 "말풍선 박스 바닥"이 아니라 "말풍선 안에 실제로 타이핑된 글자의 가장
-  // 아래부분"과 "텍스트의 가장 윗부분(anchor.top)" 두 지점의 정중앙에 오도록 총 여백
-  // (totalGap)을 비대칭으로 나눈다. 말풍선 박스 바닥은 실제 글자보다 bottomInset만큼
-  // 더 아래에 있으므로, 그만큼을 tickRise 쪽에 더 얹고 bubbleGap 쪽에서 덜어내야
-  // 실제로 타이핑된 글자 기준으로 정확히 절반씩 나뉜다 — "말풍선 박스"가 아니라 안의
-  // 실제 글자를 기준으로 나눈다. bottomInset이 totalGap의 절반을 넘는 극단적인
-  // 경우에도 bubbleGap이 음수(말풍선이 기준선을 넘어 내려옴)로 내려가지 않도록
-  // 최소값을 두고, tickRise는 "totalGap - bubbleGap"으로 남은 만큼을 그대로 받는다 —
-  // 이래야 이 둘의 합이 항상 totalGap과 같다는 TextObjectView의 예약 여백 전제가
-  // 클램프 여부와 무관하게 유지된다.
-  const bubbleGap = computeBubbleGap(totalGap, bottomInset, scale);
-  const tickRise = totalGap - bubbleGap;
   const isComposingRef = useRef(false);
   const wasEditingRef = useRef(false);
   const dragRef = useRef<{
     pointerId: number;
     startScreen: { x: number; y: number };
     startOffsetX: number;
+    startOffsetY: number;
     dragging: boolean;
   } | null>(null);
   // pointerup 직후 브라우저가 합성하는 click까지 억제하기 위한 플래그(진짜 드래그였을 때만).
   const suppressClickRef = useRef(false);
-  const lastReportedHeightRef = useRef(0);
   const [highlightRects, setHighlightRects] = useState<AnnotationHighlightRect[]>([]);
 
   // 형광펜/주석 도구가 켜져 있는 동안(본문과 동일한 관례)에는 이 말풍선 자체를
@@ -499,6 +479,11 @@ export function AnnotationBubble({
   // 기준값으로 쓴다 — annotation.offsetX를 직접 prop으로 받지 않는 이유는 clamp된 값(left)이
   // 이미 "실제로 보이는 위치"를 정확히 반영하기 때문(드래그 도중에도 항상 이 값 기준으로 계산).
   const currentOffsetX = left - anchor.left;
+  // offsetY는 이미 snapAnnotationOffsetY를 거쳐 저장된 두 값(0 또는 totalGap*배수) 중
+  // 하나이므로(annotation.offsetY, 위 렌더 본문에서 이미 읽어둔 offsetY 변수), 드래그
+  // 시작 시점의 기준값으로 그대로 쓴다 — 드래그 도중 후보값은 handlePointerMove가
+  // snapAnnotationOffsetY로 다시 스냅한다.
+  const currentOffsetY = offsetY;
 
   // 색상은 annotation.color(생성 시점의 toolStore.annotationColor, 또는 이후
   // PropertiesPanel의 ColorPickerPopover로 바꾼 자유 hex)를 따른다 — 없으면
@@ -512,6 +497,7 @@ export function AnnotationBubble({
       pointerId: e.pointerId,
       startScreen: { x: e.clientX, y: e.clientY },
       startOffsetX: currentOffsetX,
+      startOffsetY: currentOffsetY,
       dragging: false,
     };
   };
@@ -545,7 +531,12 @@ export function AnnotationBubble({
     }
 
     const zoom = useViewportStore.getState().zoom;
-    onDragOffsetChange(state.startOffsetX + dxScreen / zoom);
+    // 요구사항(2026-09-09, 이진법 위/아래 스냅): 세로는 raw 델타를 그대로 반영하지
+    // 않고, snapAnnotationOffsetY로 "위" 기본 위치(0) 또는 "아래" 기본 위치(totalGap*
+    // 배수) 중 하나로 스냅한 값만 내보낸다 — 드래그 중간에 그 중간 어떤 값도 store에
+    // 반영되지 않는다(annotationLayout.ts의 snapAnnotationOffsetY 문서 주석 참고).
+    const rawOffsetY = state.startOffsetY + dyScreen / zoom;
+    onDragOffsetChange(state.startOffsetX + dxScreen / zoom, snapAnnotationOffsetY(rawOffsetY, scale));
   };
 
   const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -561,28 +552,33 @@ export function AnnotationBubble({
     }
   };
 
-  // ── 화살표 목표점 계산 ─────────────────────────────────────────────
+  // ── 화살표 변환 계산 ─────────────────────────────────────────────
   // 항상 "실제 DOM 최신 위치"에서 다시 계산한다(고정 좌표를 어딘가 저장해두지 않음) —
   // 그래서 본문 이동/줄바꿈/편집, 주석 이동/편집/줄 수 증가, 확대/축소 등 무엇이
   // 바뀌어도 다음 렌더에서 항상 올바른 값으로 그려진다.
   //
-  // tickY는 말풍선 박스의 CSS top(= tickY - bubbleGap, translateY(-100%) 기준점)을
-  // 정하는 데 여전히 쓰인다 — 화살표 자체의 좌표에는 관여하지 않는다. 화살표의 두
-  // 목표점은 anchor.left/top(드래그한 텍스트의 첫 글자, tail이 향하는 쪽)과
-  // arrowHeadLocal(주석 텍스트의 첫 글자, head/화살촉이 향하는 쪽 — 위 측정 effect가
-  // 채운다)이다. arrowHeadLocal이 아직 측정 전(null)이면 화살표를 그리지 않는다.
-  const tickY = anchor.top - tickRise;
-  const arrowTransform = arrowHeadLocal
-    ? similarityTransform({ x: anchor.left, y: anchor.top }, arrowHeadLocal)
-    : null;
-  // 요구사항(새로고침/드래그 시 다른 줄과 겹치는 버그 수정): 손그림 화살표는 고리
-  // 모양이라, 두 목표점이 멀리(특히 가로로 많이) 떨어져 있을수록 그 고리가 유사변환
-  // 스케일을 따라 커지면서 위쪽(이전 줄)으로 삐져나갈 수 있다. 이 주석을 위해 실제로
-  // 예약된 세로 공간은 [bubbleTopLocal, anchor.top] 구간뿐이다(그 위는 이전 줄의
-  // 영역) — 그래서 화살표 레이어를 정확히 이 구간으로 overflow:hidden 클리핑해서,
-  // 고리가 아무리 커져도 예약된 공간 밖으로는 절대 그려지지 않게 한다. 가로는 두
-  // 목표점 사이 + 고리가 옆으로 부풀 여유(clipMarginX)만큼만 넉넉히 열어둔다.
-  const clipHeight = bubbleTopLocal !== null ? Math.max(0, anchor.top - bubbleTopLocal) : 0;
+  // 요구사항(2026-09-09, 화살표 크기+기울기 고정): 스케일은 드래그 거리와 무관하게
+  // fontScale 기반 고정값이고(ARROW_SCALE_BASE 주석 참고), 회전은 아예 하지 않는다
+  // (arrowTransformFor 주석 참고) — anchor는 더 이상 방향 계산에 쓰이지 않고, head
+  // 한 점만 arrowHeadLocal(주석 말풍선의 첫 글자, 위 측정 effect가 채운다)에 정확히
+  // 맞춘다. arrowHeadLocal이 아직 측정 전(null)이면 화살표를 그리지 않는다. isBelow면
+  // (요구사항: 주석이 텍스트 아래로 이동하면 화살표 SVG가 상하 반전) flip=true로
+  // 넘겨 순수 수직 반사 성분만 섞인 변환을 만든다.
+  const arrowFixedScale = ARROW_SCALE_BASE * scale;
+  const arrowTransform = arrowHeadLocal ? arrowTransformFor(arrowHeadLocal, arrowFixedScale, isBelow) : null;
+  // 요구사항(새로고침/드래그 시 다른 줄과 겹치는 버그 수정): 화살표 크기가 이제
+  // 고정이라 예전만큼 위험하지는 않지만, 그래도 안전장치로 이 주석에 실제로 예약된
+  // 세로 공간 밖으로는 화살표가 그려지지 않도록 계속 클리핑한다. 위(!isBelow)면
+  // [anchor.top - totalGap - approxBubbleHeight, anchor.top] 구간(그 위는 이전 줄의
+  // 영역), 아래(isBelow)면 [anchor.top, anchor.top + totalGap + approxBubbleHeight]
+  // 구간(그 아래는 다음 줄의 영역)으로 클리핑한다 — 아래 JSX의 실제 박스 위치(top/
+  // translateY)와 마찬가지로 totalGap만큼 anchor.top에서 띄우고, 실측 높이 대신
+  // approxBubbleHeight(근사치)로 폭을 잡는다(클리핑은 안전장치일 뿐이라 한 프레임
+  // 지연되는 근사값으로도 충분하다). 가로는 두 목표점 사이 + 고리가 옆으로 부풀
+  // 여유(clipMarginX)만큼만 넉넉히 열어둔다.
+  const clipTop = isBelow ? anchor.top : anchor.top - totalGap - approxBubbleHeight;
+  const clipBottom = isBelow ? anchor.top + anchor.height + totalGap + approxBubbleHeight : anchor.top;
+  const clipHeight = Math.max(0, clipBottom - clipTop);
   const clipMarginX = 400;
   const arrowXs = arrowHeadLocal ? [anchor.left, arrowHeadLocal.x] : [anchor.left];
   const clipLeft = Math.min(...arrowXs) - clipMarginX;
@@ -607,7 +603,7 @@ export function AnnotationBubble({
           style={{
             position: 'absolute',
             left: clipLeft,
-            top: bubbleTopLocal ?? 0,
+            top: clipTop,
             width: clipWidth,
             height: clipHeight,
             overflow: 'hidden',
@@ -618,7 +614,7 @@ export function AnnotationBubble({
             style={{
               position: 'absolute',
               left: -clipLeft,
-              top: -(bubbleTopLocal ?? 0),
+              top: -clipTop,
               width: ARROW_SVG_SIZE,
               height: ARROW_SVG_SIZE,
               transformOrigin: '0 0',
@@ -672,8 +668,14 @@ export function AnnotationBubble({
         style={{
           position: 'absolute',
           left,
-          top: tickY - bubbleGap,
-          transform: 'translateY(-100%)',
+          // 요구사항(2026-09-09, 이진법 위/아래 스냅): "위" 배치는 박스의 정확한 실제
+          // 높이를 몰라도(그 높이는 이 컴포넌트가 렌더된 뒤에야 실측 가능) CSS
+          // translateY(-100%)만으로 "박스 바닥이 top 값에 오도록" 정확히 그릴 수 있다
+          // — 그래서 top엔 그냥 anchor.top - totalGap(바닥이 와야 할 자리)을 주고
+          // transform으로 끌어올린다. "아래" 배치는 top 자체가 박스 좌상단이 와야 할
+          // 자리(anchor.top + totalGap)와 같으므로 그대로 쓰고 transform은 필요 없다.
+          top: isBelow ? anchor.top + anchor.height + totalGap : anchor.top - totalGap,
+          transform: isBelow ? undefined : 'translateY(-100%)',
           maxWidth,
           padding: `${bubblePaddingY}px ${bubblePaddingX}px`,
           fontSize: bubbleFontSize,

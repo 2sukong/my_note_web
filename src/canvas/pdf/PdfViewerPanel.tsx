@@ -268,6 +268,32 @@ export function PdfViewerPanel() {
     return () => observer.disconnect();
   }, [recomputeVisibleRange]);
 
+  // 요구사항(2026-09-09): 상단 이전/다음 페이지 화살표(또는 필름스트립 썸네일 클릭 등
+  // currentPageIndex가 바뀌는 어떤 경로로든)로 페이지가 바뀌면, 그 페이지의 썸네일이
+  // 필름스트립 밖에 있을 때만 "화면에 보이는 데 필요한 최소 거리"만큼만 스크롤한다 —
+  // 이미 보이는 중이면 아무것도 안 함, 왼쪽 밖이면 왼쪽 끝에 맞춰서, 오른쪽 밖이면
+  // 오른쪽 끝에 맞춰서(가운데로 강제 정렬하지 않음). 썸네일이 절대좌표
+  // (pageIndex * (THUMB_WIDTH + THUMB_GAP))로 배치돼 있어 가상화 범위 밖이라 아직
+  // DOM에 없어도 위치를 바로 계산할 수 있다 — scrollIntoView 대신 이 방식을 쓴 이유.
+  useEffect(() => {
+    const el = filmstripRef.current;
+    if (!el) return;
+    const perThumb = THUMB_WIDTH + THUMB_GAP;
+    const thumbLeft = currentPageIndex * perThumb;
+    const thumbRight = thumbLeft + THUMB_WIDTH;
+    const viewLeft = el.scrollLeft;
+    const viewRight = viewLeft + el.clientWidth;
+    let target: number | null = null;
+    if (thumbLeft < viewLeft) {
+      target = thumbLeft;
+    } else if (thumbRight > viewRight) {
+      target = thumbRight - el.clientWidth;
+    }
+    if (target !== null) {
+      el.scrollTo({ left: target, behavior: 'smooth' });
+    }
+  }, [currentPageIndex]);
+
   // Phase 6: 형광펜 등 오버레이 도구는 이 훅이 stagePage가 없을 때(pageWidth/height<=0)
   // 스스로 아무 것도 하지 않으므로, 다른 훅들과 마찬가지로 항상 호출해도 안전하다(Hooks
   // 규칙: 조건부 return보다 위에서 무조건 호출).

@@ -1408,7 +1408,7 @@ function FrameStylePreview({ themeId, showFold }: { themeId: FrameTheme; showFol
             left: '50%',
             top: '2.5%',
             bottom: '2.5%',
-            width: 1,
+            width: 1.5,
             background: FOLD_LINE_PREVIEW_COLOR[themeId],
             transform: 'translateX(-50%)',
           }}

@@ -21,6 +21,7 @@ import type { AnnotationSpacerSpec } from './lineDomSync';
 import { highlightBackgroundFor } from './highlightColors';
 import { registerLineEl, unregisterLineEl } from './lineDomRegistry';
 import { AnnotationBubble, DEFAULT_ANNOTATION_OFFSET_X_BASE } from './AnnotationBubble';
+import { isAnnotationBelowAnchor } from './annotationLayout';
 import { useObjectsStore } from '../../store/objectsStore';
 import { resolveFrameTheme } from '../frame/frameStyles';
 import { useInteractionStore } from '../../store/interactionStore';
@@ -134,6 +135,12 @@ interface AnnotationAnchor {
   /** anchor 텍스트 구간의 맨 위(컨테이너 기준, zoom 정규화) — 화살표가 가리키는
    * 지점(첫 글자)의 y좌표. */
   top: number;
+  /** 요구사항(2026-09-09 2차 수정 — 주석을 텍스트 아래로 옮겼을 때 anchor 자신의
+   * 글자와 겹치는 버그): anchor 구간의 실제 렌더 높이(컨테이너 기준, zoom 정규화).
+   * "위" 배치는 anchor.top에서 위로 띄우기만 하면 되므로 필요 없지만, "아래" 배치는
+   * anchor.top이 아니라 anchor.top + height(=이 구간 글자의 실제 바닥)에서부터
+   * 아래로 띄워야 anchor 자신의 글자를 덮지 않는다(AnnotationBubble.tsx 참고). */
+  height: number;
   /** 실제로 말풍선이 그려질 왼쪽 위치 = anchorLeft + offsetX를 target Text 범위로 clamp한 값. */
   left: number;
   /** target Text의 남은 가로 공간 기준 최대 폭(px). */
@@ -170,6 +177,7 @@ function sameAnchors(a: AnnotationAnchor[], b: AnnotationAnchor[]): boolean {
       a[i].annotation.color !== b[i].annotation.color ||
       a[i].anchorLeft !== b[i].anchorLeft ||
       a[i].top !== b[i].top ||
+      a[i].height !== b[i].height ||
       a[i].left !== b[i].left ||
       a[i].maxWidth !== b[i].maxWidth ||
       a[i].fontScale !== b[i].fontScale ||
@@ -190,6 +198,40 @@ function sameHangingIndents(a: Map<string, number>, b: Map<string, number>): boo
     if (b.get(key) !== value) return false;
   }
   return true;
+}
+
+/** annotationsOnFirstRow(Set<annotationId>) 두 스냅샷이 실질적으로 같은지 비교한다 —
+ * sameHangingIndents와 같은 이유(불필요한 재렌더 방지). */
+function sameIdSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const id of a) {
+    if (!b.has(id)) return false;
+  }
+  return true;
+}
+
+/** 요구사항 버그 수정(2026-09-09, 같은 줄에 주석 2개 이상일 때 기존 텍스트 간격이
+ * 2배로 늘어남): 이 줄의 문단 시작(offset 0)부터 주어진 offset까지가 화면에서 실제로
+ * 줄바꿈되는지(=시각적으로 2개 이상의 행에 걸치는지) 측정한다. true(=아직 첫 행 안)면
+ * 이 offset에 달린 주석은 annotationSpaceMetrics(paddingTop)에 합류시켜야 하고,
+ * annotationSpacerSpecs가 별도 spacer를 또 끼워 넣으면 안 된다 — 그렇게 하면 이미
+ * paddingTop으로 확보한 여백 위에 spacer 높이가 같은 행 안에서 그대로 더해져(줄바꿈이
+ * 실제로 일어나지 않으므로 새 행이 생기는 게 아니라 같은 행의 line-box만 커짐) 여백이
+ * 정확히 2배로 보이는 게 이번에 고친 버그의 원인이었다.
+ *
+ * rangeForOffsets는 텍스트 노드만 순회해서 offset을 세므로(spacer <span>은 텍스트가
+ * 없어 트리워커가 아예 건너뛴다), 이 측정은 그 offset에 달린 주석 자신의 spacer가
+ * DOM에 있든 없든 항상 "spacer가 전혀 없었다면" 원래 텍스트가 실제로 몇 번째 행에
+ * 있는지를 그대로 반영한다 — 그래서 이전 렌더에서 잘못 끼워진 spacer가 남아 있어도
+ * 이 측정 자체는 오염되지 않는다. el에 아직 텍스트가 없는 첫 렌더(마운트 직후)처럼
+ * 측정이 불가능하면, 여백을 불필요하게 만들지 않는 쪽(=첫 행으로 간주, spacer 없음)을
+ * 기본값으로 삼는다 — 실제로 여러 행에 걸치는 경우였다면 이후 렌더(annotationHeights
+ * 등 다른 측정이 이 effect를 다시 돌릴 때)에서 실제 텍스트를 보고 스스로 바로잡는다. */
+function isOffsetWithinFirstVisualRow(el: HTMLElement, offset: number): boolean {
+  if (offset <= 0) return true;
+  const range = rangeForOffsets(el, 0, offset);
+  if (!range) return true;
+  return mergeClientRectsByLine(range.getClientRects()).length <= 1;
 }
 
 interface FocusRequest {
@@ -287,6 +329,13 @@ export function TextObjectView({ object }: { object: TextObject }) {
   // 측정해서 보고). 주석이 몇 줄이 되든(요구사항: 줄 수 제한 없이 자동으로 늘어남) 그
   // 줄 위에 미리 확보해 두는 여백(paddingTop)을 여기에 맞춰 동적으로 계산하기 위함이다.
   const [annotationHeights, setAnnotationHeights] = useState<Record<string, number>>({});
+  // 버그 수정(2026-09-09, 같은 줄에 주석 2개 이상일 때 간격 2배): 문단 중간(start>0)에
+  // 달린 주석 중 실제로는 아직 문단의 첫 행 안에 있는(=화면상 줄바꿈이 일어나기 전인)
+  // 것들의 id 집합 — isOffsetWithinFirstVisualRow로 측정한다. 이 집합에 있는 주석은
+  // annotationSpaceMetrics(paddingTop, 첫 행 여백)에 합류하고, annotationSpacerSpecs는
+  // 이 집합에 있는 주석을 건너뛴다(중복 여백 방지). DOM 측정 결과라 다른 값들과 같은
+  // 이유로 useState + 아래 useLayoutEffect로 갱신한다.
+  const [annotationsOnFirstRow, setAnnotationsOnFirstRow] = useState<Set<string>>(new Set());
   // 줄을 "클릭"했는지 "드래그"했는지 구분하기 위한 시작 좌표 기록(줄 id별).
   // select 도구에서 하이라이트 위를 클릭하면 선택, 그 외에는 기존 객체 드래그로 흘려보낸다.
   const lineClickStartRef = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -392,30 +441,79 @@ export function TextObjectView({ object }: { object: TextObject }) {
     return false;
   }
 
-  /** 이 줄의 문단 맨 앞(annotation.start === 0)에 달린 주석들 중 가장 큰 말풍선 실측
-   * 높이와, 그 줄의 fontScale — paddingTop(reservedSpaceForLine) 계산에 쓰인다.
-   * start > 0(문단 중간의 자동 줄바꿈된 행)인 주석은 여기서 제외한다 — padding-top은
-   * 문단 전체의 첫 행에만 적용되는 CSS 특성상 그 행에만 유효하기 때문이다. 그런
-   * 주석들은 annotationSpacerSpecs가 별도로 처리한다. */
+  /** 이 줄의 문단 맨 앞(annotation.start === 0)에 달린, 그리고 아직 "텍스트 위"에
+   * 있는(isAnnotationBelowAnchor가 false인) 주석들 중 가장 큰 말풍선 실측 높이와,
+   * 그 줄의 fontScale — paddingTop(reservedSpaceForLine) 계산에 쓰인다. start > 0
+   * (문단 중간의 자동 줄바꿈된 행)인 주석은 여기서 제외한다 — padding-top은 문단
+   * 전체의 첫 행에만 적용되는 CSS 특성상 그 행에만 유효하기 때문이다. 그런 주석들은
+   * annotationSpacerSpecs가 별도로 처리한다. 요구사항(2026-09-09, 주석을 텍스트
+   * 아래로도 이동 가능하게): "텍스트 아래"로 넘어간 주석은 annotationSpaceMetricsBelow
+   * (아래)가 대신 담당하므로 이 Math.max 그룹에서 자동으로 빠진다 — 그래서 마지막
+   * 남은 주석이 아래로 이동하면 이 함수가 자연히 null을 반환해 위쪽 여백이 다시
+   * 사라진다(요구사항: "위쪽에 주석이 없다면 위쪽 여백은 다시 없애기"). */
   function annotationSpaceMetrics(line: TextLine): { maxBubbleHeight: number; lineFontScale: number } | null {
-    const list = (line.annotations ?? []).filter((a) => a.start === 0);
+    // 버그 수정(2026-09-09): a.start === 0(문단 맨 앞)뿐 아니라, start > 0이라도
+    // annotationsOnFirstRow에 있으면(=실제로는 아직 줄바꿈 전, 같은 첫 행) 여기 합류시켜
+    // Math.max로 함께 묶는다 — annotationSpacerSpecs가 그 주석엔 별도 spacer를 만들지
+    // 않으므로, 이렇게 합류시키지 않으면 그 주석의 말풍선 높이가 어디에도 반영되지 않는다.
+    const list = (line.annotations ?? []).filter((a) => a.start === 0 || annotationsOnFirstRow.has(a.id));
     if (list.length === 0) return null;
     let maxBubbleHeight = 0;
     let lineFontScale = 1;
+    let any = false;
     for (const a of list) {
       const anchor = annotationAnchors.find((anc) => anc.annotation.id === a.id);
       const scale = anchor?.fontScale ?? 1;
+      if (isAnnotationBelowAnchor(a.offsetY ?? 0, scale)) continue;
+      any = true;
       lineFontScale = Math.max(lineFontScale, scale);
       const height = annotationHeights[a.id] ?? DEFAULT_ANNOTATION_HEIGHT * scale;
       maxBubbleHeight = Math.max(maxBubbleHeight, height);
     }
+    if (!any) return null;
     return { maxBubbleHeight, lineFontScale };
   }
 
-  /** 이 줄의 문단 맨 앞 주석(있다면)이 말풍선+연결선을 그릴 공간을 얼마나 확보해야
-   * 하는지(월드 px). 문단 중간 주석은 포함하지 않는다(annotationSpacerSpecs가 담당). */
+  /** annotationSpaceMetrics의 "아래" 버전 — 같은 후보 목록(문단 맨 앞 또는
+   * annotationsOnFirstRow) 중 isAnnotationBelowAnchor가 true인(=텍스트 아래로
+   * 이동한) 주석들만 모아 paddingBottom(reservedSpaceBelowForLine) 계산에 쓴다.
+   * 요구사항(2026-09-09, 다음 줄을 밀어내는 로직): 이 줄 자신의 paddingBottom을
+   * 늘리면 CSS 문서 흐름상 자동으로 다음 줄(및 그 아래 모든 내용)이 그만큼 밀려
+   * 내려가므로, 이웃 줄의 존재 여부나 위치를 이 함수가 알 필요가 전혀 없다. */
+  function annotationSpaceMetricsBelow(line: TextLine): { maxBubbleHeight: number; lineFontScale: number } | null {
+    const list = (line.annotations ?? []).filter((a) => a.start === 0 || annotationsOnFirstRow.has(a.id));
+    if (list.length === 0) return null;
+    let maxBubbleHeight = 0;
+    let lineFontScale = 1;
+    let any = false;
+    for (const a of list) {
+      const anchor = annotationAnchors.find((anc) => anc.annotation.id === a.id);
+      const scale = anchor?.fontScale ?? 1;
+      if (!isAnnotationBelowAnchor(a.offsetY ?? 0, scale)) continue;
+      any = true;
+      lineFontScale = Math.max(lineFontScale, scale);
+      const height = annotationHeights[a.id] ?? DEFAULT_ANNOTATION_HEIGHT * scale;
+      maxBubbleHeight = Math.max(maxBubbleHeight, height);
+    }
+    if (!any) return null;
+    return { maxBubbleHeight, lineFontScale };
+  }
+
+  /** 이 줄의 문단 맨 앞 주석(있다면, "텍스트 위"인 것만) 이 말풍선+연결선을 그릴
+   * 공간을 얼마나 확보해야 하는지(월드 px, paddingTop으로 쓰인다). 문단 중간 주석은
+   * 포함하지 않는다(annotationSpacerSpecs가 담당). */
   function reservedSpaceForLine(line: TextLine): number {
     const metrics = annotationSpaceMetrics(line);
+    if (!metrics) return 0;
+    return ANNOTATION_GAP * metrics.lineFontScale + metrics.maxBubbleHeight + ANNOTATION_SPACE_BUFFER * metrics.lineFontScale;
+  }
+
+  /** reservedSpaceForLine의 "아래" 버전(paddingBottom으로 쓰인다) — 요구사항
+   * (2026-09-09, 주석을 텍스트 아래로도 이동 가능하게): "텍스트 아래"로 이동한
+   * 주석이 있으면 이 줄 자신의 아래쪽에 그만큼의 공간을 확보해서, 뒤이은 줄이
+   * 자연스럽게 밀려 내려가게 한다. */
+  function reservedSpaceBelowForLine(line: TextLine): number {
+    const metrics = annotationSpaceMetricsBelow(line);
     if (!metrics) return 0;
     return ANNOTATION_GAP * metrics.lineFontScale + metrics.maxBubbleHeight + ANNOTATION_SPACE_BUFFER * metrics.lineFontScale;
   }
@@ -424,9 +522,18 @@ export function TextObjectView({ object }: { object: TextObject }) {
    * 줄바꿈된 행 위에 끼워 넣을 spacer 명세를 계산한다. 실제로 store의 runs를 바꾸지
    * 않는 순수 함수다 — annotation.start/annotationAnchors/annotationHeights(모두 이미
    * 최신 상태)만으로 매 렌더 결정적으로 계산되므로, DOM을 읽어 오프셋을 추정하는
-   * 단계가 아예 없다(오프셋 드리프트가 구조적으로 발생할 수 없는 이유). */
+   * 단계가 아예 없다(오프셋 드리프트가 구조적으로 발생할 수 없는 이유). 요구사항
+   * (2026-09-09, 주석을 텍스트 아래로도 이동 가능하게): "텍스트 아래"로 이동한
+   * 주석이면 verticalAlign을 'top'으로 줘서(lineDomSync.ts 참고) 같은 spacer가 그
+   * 행의 위가 아니라 아래에 여백을 만들게 한다 — spacer의 삽입 위치(offset) 자체는
+   * 안 바뀐다. */
   function annotationSpacerSpecs(line: TextLine): AnnotationSpacerSpec[] {
-    const list = (line.annotations ?? []).filter((a) => a.start > 0);
+    // 버그 수정(2026-09-09): start > 0이어도 annotationsOnFirstRow에 있으면(=실제로는
+    // 아직 첫 행 안, 위 annotationSpaceMetrics가 이미 그 높이를 paddingTop에 반영함)
+    // 여기서 또 spacer를 만들면 같은 여백이 한 행 안에서 중복으로 더해져 간격이 2배로
+    // 보인다 — 그래서 그런 주석은 제외한다. 진짜로 뒤 행에 걸리는(줄바꿈 이후) 주석만
+    // 남는다.
+    const list = (line.annotations ?? []).filter((a) => a.start > 0 && !annotationsOnFirstRow.has(a.id));
     if (list.length === 0) return [];
     return list.map((a) => {
       const anchor = annotationAnchors.find((anc) => anc.annotation.id === a.id);
@@ -435,7 +542,8 @@ export function TextObjectView({ object }: { object: TextObject }) {
       const bubbleHeight = annotationHeights[a.id] ?? DEFAULT_ANNOTATION_HEIGHT * scale;
       const naturalRowHeight = computedFontSizePx * lineHeightRatio;
       const extra = ANNOTATION_GAP * scale + bubbleHeight + ANNOTATION_SPACE_BUFFER * scale;
-      return { offset: a.start, heightPx: naturalRowHeight + extra, annotationId: a.id };
+      const isBelow = isAnnotationBelowAnchor(a.offsetY ?? 0, scale);
+      return { offset: a.start, heightPx: naturalRowHeight + extra, annotationId: a.id, verticalAlign: isBelow ? 'top' : 'bottom' };
     });
   }
 
@@ -472,12 +580,24 @@ export function TextObjectView({ object }: { object: TextObject }) {
   //    텍스트 동기화가 끝난 뒤에 캐럿을 옮겨야 위치가 어긋나지 않는다.
   useLayoutEffect(() => {
     const containerEl = containerRef.current;
+    // 버그 수정(2026-09-09, 같은 줄에 주석 2개 이상일 때 간격 2배): spacer를 계산하기
+    // 전에, 문단 중간(start>0)에 달린 주석들이 실제로 아직 첫 행 안에 있는지 먼저
+    // 측정해 모아둔다(annotationSpaceMetrics/annotationSpacerSpecs 위 주석, isOffsetWithinFirstVisualRow
+    // 주석 참고). 이 값을 이번 pass의 spacer 계산(annotationSpacerSpecs)에는 아직
+    // 반영하지 않는다(state는 다음 렌더부터 반영) — annotationHeights 등 다른 측정과
+    // 같은 관례로, 한두 프레임 안에 스스로 정착한다.
+    const nextOnFirstRowIds = new Set<string>();
     for (const line of object.lines) {
       const el = lineElsRef.current.get(line.id);
       if (!el) continue;
       // Phase 4: 모든 ref가 붙은 뒤(=이 effect가 도는 시점) 등록해야 containerRef.current가
       // 확실히 존재한다. registerLineEl은 같은 값으로 다시 불러도 안전(멱등)하다.
       if (containerEl) registerLineEl(object.id, line.id, el, containerEl);
+      for (const a of line.annotations ?? []) {
+        if (a.start > 0 && isOffsetWithinFirstVisualRow(el, a.start)) {
+          nextOnFirstRowIds.add(a.id);
+        }
+      }
       const spacers = annotationSpacerSpecs(line);
       if (lineDomMatchesRuns(el, line.runs, spacers)) continue;
       if (isComposingRef.current && document.activeElement === el) continue;
@@ -493,6 +613,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
       // 텍스트로 캐시를 맞춰두면 이후 비교가 항상 "지금 실제 DOM/store 상태" 기준이 된다.
       lastProcessedTextRef.current.set(line.id, el.textContent ?? '');
     }
+    setAnnotationsOnFirstRow((prev) => (sameIdSet(prev, nextOnFirstRowIds) ? prev : nextOnFirstRowIds));
 
     const req = focusRequestRef.current;
     if (req) {
@@ -605,6 +726,11 @@ export function TextObjectView({ object }: { object: TextObject }) {
           if (rect.width <= 0 && rect.height <= 0) continue;
           const anchorLeft = (rect.left - originLeft) / zoom;
           const top = (rect.top - originTop) / zoom;
+          // 요구사항(2026-09-09 2차 수정, 아래 배치 시 anchor 자신의 글자와 겹치는
+          // 버그): "아래" 배치의 시작점을 anchor.top이 아니라 이 구간의 실제 바닥
+          // (anchor.top + height)으로 잡기 위해 필요하다 — 아래 AnnotationBubble.tsx
+          // 참고.
+          const height = rect.height / zoom;
 
           // target Text의 실제 가로 범위(컨테이너 padding 안쪽) 기준으로 clamp한다 —
           // Annotation은 Canvas/Frame 전체가 아니라 이 Text 객체의 박스를 벗어날 수 없다.
@@ -651,6 +777,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
             annotation: a,
             anchorLeft,
             top,
+            height,
             left: clampedLeft,
             maxWidth,
             fontScale,
@@ -784,6 +911,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
     object.manualHeight,
     isEditing,
     annotationHeights,
+    annotationsOnFirstRow,
     customFonts,
   ]);
 
@@ -1500,6 +1628,10 @@ export function TextObjectView({ object }: { object: TextObject }) {
             // 들어갈 공간을 미리 확보해서 텍스트와 겹치지 않게 한다. 주석이 여러 줄로
             // 늘어나도 잘리지 않도록(요구사항) 고정값이 아니라 실측 높이 기반으로 계산한다.
             paddingTop: reservedSpaceForLine(line),
+            // 요구사항(2026-09-09, 주석을 텍스트 아래로도 이동 가능하게): 이 줄에
+            // 달린 주석이 "텍스트 아래"로 이동했으면, 그만큼을 이 줄의 아래쪽에
+            // 확보해서 다음 줄이 자연스럽게 밀려 내려가게 한다(paddingTop과 대칭).
+            paddingBottom: reservedSpaceBelowForLine(line),
             minHeight: `${lineHeightRatio}em`,
             // 버그 수정(커스텀 글꼴에서 상자를 최소로 줄여도 빈 공간이 많이 남음):
             // 예전엔 사이드바에서 줄 간격을 명시적으로 조절한 적이 있을 때만 CSS
@@ -1525,7 +1657,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
       {/* Phase 4(2차): Annotation 말풍선 + 화살표. 텍스트보다 위에 그려져야 하므로
           (그리고 pointer 이벤트를 받아야 하므로) line 목록 뒤에, 별도 pointer-events:none
           래퍼 없이 배치한다 — 각 bubble이 필요한 영역에서만 자체적으로 클릭을 받는다. */}
-      {annotationAnchors.map(({ lineId, annotation, anchorLeft, top, left, maxWidth, fontScale }) => {
+      {annotationAnchors.map(({ lineId, annotation, anchorLeft, top, height, left, maxWidth, fontScale }) => {
         const isSelected =
           fineSelection?.kind === 'annotation' && fineSelection.objectId === object.id && fineSelection.id === annotation.id;
         // 주의: 여기서 텍스트 객체 자체의 isEditing(선택된 텍스트가 이 객체인지)을 쓰면
@@ -1539,7 +1671,7 @@ export function TextObjectView({ object }: { object: TextObject }) {
             objectId={object.id}
             lineId={lineId}
             annotation={annotation}
-            anchor={{ left: anchorLeft, top }}
+            anchor={{ left: anchorLeft, top, height }}
             left={left}
             maxWidth={maxWidth}
             fontScale={fontScale}
@@ -1552,14 +1684,17 @@ export function TextObjectView({ object }: { object: TextObject }) {
               useInteractionStore.getState().selectFine({ kind: 'annotation', objectId: object.id, lineId, id: annotation.id });
               useInteractionStore.getState().setMode('text-edit');
             }}
-            onDragOffsetChange={(offsetX) => {
-              // 드래그 도중 실시간 반영. clamp 자체는 다음 렌더의 측정 effect에서
+            onDragOffsetChange={(offsetX, offsetY) => {
+              // 드래그 도중 실시간 반영. offsetX의 clamp는 다음 렌더의 측정 effect에서
               // anchorLeft/textInnerLeft/textInnerRight 기준으로 다시 계산되므로
               // 여기서는 store에 원값을 그대로 반영해도 안전하다(과도하게 벗어난
               // 값이 store에 잠깐 있더라도 렌더링되는 left/maxWidth는 항상 clamp된
-              // 값만 쓰기 때문). targetTextId(이 Annotation이 속한 lineId/objectId)는
+              // 값만 쓰기 때문). offsetY는 이미 AnnotationBubble.tsx의 드래그
+              // 핸들러가 snapAnnotationOffsetY로 "위"/"아래" 두 값 중 하나로 스냅해서
+              // 넘겨주므로(요구사항: 이진법 위/아래 스냅), 여기서는 그대로 store에
+              // 반영하기만 한다. targetTextId(이 Annotation이 속한 lineId/objectId)는
               // 전혀 건드리지 않는다 — 논리적 연결 유지.
-              updateAnnotationOffset(object.id, lineId, annotation.id, offsetX);
+              updateAnnotationOffset(object.id, lineId, annotation.id, offsetX, offsetY);
             }}
             onHeightChange={(height) => handleAnnotationHeightChange(annotation.id, height)}
             onTextChange={(text) => {

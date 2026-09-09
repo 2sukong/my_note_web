@@ -33,11 +33,18 @@ export interface AnnotationSpacerSpec {
   offset: number;
   heightPx: number;
   annotationId: string;
+  /** 요구사항(2026-09-09, 주석을 텍스트 아래로도 이동 가능하게): 이 spacer가 확보한
+   * 추가 높이를 그 행의 "위쪽"(기존 기본값, 주석이 여전히 위에 있을 때)에 둘지
+   * "아래쪽"(주석이 아래로 이동했을 때)에 둘지. vertical-align:bottom인 spacer는
+   * line-box를 위로 부풀리고(기존 동작 그대로), vertical-align:top인 spacer는
+   * 아래로 부풀린다 — 텍스트 자체의 오프셋/줄바꿈 위치는 전혀 안 바뀌고 순수하게
+   * CSS로만 여백이 어느 쪽에 생기는지가 바뀐다. 생략하면 'bottom'(기존과 동일). */
+  verticalAlign?: 'top' | 'bottom';
 }
 
 type LineSegment =
   | { kind: 'text'; runIndex: number; text: string; sig: string }
-  | { kind: 'spacer'; annotationId: string; heightPx: number };
+  | { kind: 'spacer'; annotationId: string; heightPx: number; verticalAlign: 'top' | 'bottom' };
 
 /**
  * runs + spacer 명세로부터 "최종적으로 DOM에 그려야 할 조각들"의 순서 있는 목록을
@@ -62,7 +69,12 @@ function buildSegments(runs: TextRun[], spacers: AnnotationSpacerSpec[]): LineSe
       const localOffset = sorted[spacerIdx].offset - cursor;
       const before = run.text.slice(textStart, localOffset);
       if (before) segments.push({ kind: 'text', runIndex, text: before, sig });
-      segments.push({ kind: 'spacer', annotationId: sorted[spacerIdx].annotationId, heightPx: sorted[spacerIdx].heightPx });
+      segments.push({
+        kind: 'spacer',
+        annotationId: sorted[spacerIdx].annotationId,
+        heightPx: sorted[spacerIdx].heightPx,
+        verticalAlign: sorted[spacerIdx].verticalAlign ?? 'bottom',
+      });
       textStart = localOffset;
       spacerIdx++;
     }
@@ -72,7 +84,12 @@ function buildSegments(runs: TextRun[], spacers: AnnotationSpacerSpec[]): LineSe
   }
   // 줄 맨 끝(offset === 전체 길이)에 걸리는 드문 경우 — 남은 spacer를 뒤에 붙인다.
   while (spacerIdx < sorted.length) {
-    segments.push({ kind: 'spacer', annotationId: sorted[spacerIdx].annotationId, heightPx: sorted[spacerIdx].heightPx });
+    segments.push({
+      kind: 'spacer',
+      annotationId: sorted[spacerIdx].annotationId,
+      heightPx: sorted[spacerIdx].heightPx,
+      verticalAlign: sorted[spacerIdx].verticalAlign ?? 'bottom',
+    });
     spacerIdx++;
   }
   return segments;
@@ -101,6 +118,7 @@ export function lineDomMatchesRuns(el: HTMLElement, runs: TextRun[], spacers: An
       if (child.dataset.spacerFor !== seg.annotationId) return false;
       const h = parseFloat(child.dataset.spacerHeight ?? '');
       if (!Number.isFinite(h) || Math.abs(h - seg.heightPx) > 0.5) return false;
+      if ((child.dataset.spacerAlign ?? 'bottom') !== seg.verticalAlign) return false;
     } else {
       if (child.dataset.annotationSpacer) return false;
       if (child.textContent !== seg.text) return false;
@@ -131,12 +149,13 @@ export function renderRunsIntoDom(el: HTMLElement, runs: TextRun[], spacers: Ann
       span.dataset.annotationSpacer = '1';
       span.dataset.spacerFor = seg.annotationId;
       span.dataset.spacerHeight = String(seg.heightPx);
+      span.dataset.spacerAlign = seg.verticalAlign;
       span.contentEditable = 'false';
       span.setAttribute('aria-hidden', 'true');
       span.style.display = 'inline-block';
       span.style.width = '0';
       span.style.height = `${seg.heightPx}px`;
-      span.style.verticalAlign = 'bottom';
+      span.style.verticalAlign = seg.verticalAlign;
       span.style.pointerEvents = 'none';
       return span;
     }

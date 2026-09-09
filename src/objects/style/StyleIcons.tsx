@@ -85,7 +85,7 @@ export function FillIcon({ filled }: { filled: boolean }) {
         fill={filled ? STROKE : 'none'}
         fillOpacity={filled ? 0.35 : undefined}
         stroke={STROKE}
-        strokeWidth="1.3"
+        strokeWidth="2"
       />
     </svg>
   );

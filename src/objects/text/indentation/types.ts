@@ -108,6 +108,18 @@ export interface TextAnnotation {
    */
   offsetX?: number;
   /**
+   * 요구사항(2026-09-09, 주석을 텍스트 아래로도 이동 가능하게): offsetX와 완전히 같은
+   * 원리의 세로 버전이다 — Annotation을 anchor(선택했던 텍스트 구간)의 "위쪽 딱 붙는
+   * 기본 위치" 기준으로 얼마나 세로 이동시켰는지(world px, zoom=1 정규화). 기본값
+   * (undefined ~= 0)은 "anchor 바로 위, 화살표 공간만큼만 띄운 기본 위치"를 의미한다 —
+   * 즉 이 필드가 없는(구버전) 주석은 이전과 완전히 동일하게 보인다. 자유 드래그로
+   * 계속 값이 커지면(사용자가 아래로 끌면) 결국 anchor 아래로 넘어가는데, 그 전환
+   * 시점/화살표 상하 반전 로직은 AnnotationBubble.tsx의 isAnnotationBelowAnchor를
+   * 참고 — 위쪽/아래쪽 여부는 이 값 하나로부터 순수하게 계산되고 별도로 저장하지
+   * 않는다(모드 자체를 저장하면 offsetY와 모드가 서로 어긋날 수 있어서다).
+   */
+  offsetY?: number;
+  /**
    * 요구사항(폰트 목록 통합): 이 주석 말풍선 텍스트에 쓰는 글꼴 — 본문 텍스트와
    * 완전히 같은 폰트 목록(BUILTIN_FONT_OPTIONS + fontStore.customFonts)에서 고른다.
    * 없으면(구버전 데이터의 하위 호환) DEFAULT_FONT_FAMILY로 취급한다. 생성 시점의

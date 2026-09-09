@@ -236,3 +236,18 @@ export function PdfFileIcon({ size = 17 }: IconProps) {
     </svg>
   );
 }
+
+/** 요구사항(상단 툴바 드래그 이동, 2026-09-09): 카드를 옮길 때 잡는 전용 손잡이에 쓰는
+ * 6점 그립 아이콘 — Toolbar.tsx의 canvas-toolbar-handle에서만 쓴다. */
+export function DragHandleIcon({ size = 14 }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} fill="currentColor">
+      <circle cx="7" cy="5" r={STROKE_WIDTH / 2} />
+      <circle cx="13" cy="5" r={STROKE_WIDTH / 2} />
+      <circle cx="7" cy="10" r={STROKE_WIDTH / 2} />
+      <circle cx="13" cy="10" r={STROKE_WIDTH / 2} />
+      <circle cx="7" cy="15" r={STROKE_WIDTH / 2} />
+      <circle cx="13" cy="15" r={STROKE_WIDTH / 2} />
+    </svg>
+  );
+}

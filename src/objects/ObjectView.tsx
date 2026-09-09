@@ -4,6 +4,9 @@ import { useObjectDrag } from '../canvas/interaction/useObjectDrag';
 import { useInteractionStore } from '../store/interactionStore';
 import { useToolStore, SHAPE_TOOL_IDS } from '../store/toolStore';
 import { useObjectContextMenuStore } from '../store/objectContextMenuStore';
+import { useImagePickerStore } from '../store/imagePickerStore';
+import { useViewportStore } from '../store/viewportStore';
+import { clientToWorld } from '../utils/coords';
 import { TextObjectView } from './text/TextObjectView';
 import { ImageObjectView } from './image/ImageObjectView';
 import { FrameObjectView } from './frame/FrameObjectView';
@@ -69,7 +72,13 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 타입에 대해 drag 핸들러를 아예 붙이지 않는다. 실제 테두리/라벨 전용 드래그는
   // FrameObjectView.tsx가 자기 자신의 useObjectDrag 인스턴스로 별도 처리한다.
   const isFrame = object.type === 'frame';
-  const skipDrag = isTextEditing || isTextSelectMode || isImageHighlightMode || isDrawPassthrough || isFrame || isSpacePressed;
+  // 요구사항(이미지 삽입 확장, 2026-09): '이미지' 도구가 활성화된 동안엔 다른
+  // 일회용 도구들(isDrawPassthrough)과 동일하게 기존 객체 위에서 select+drag가
+  // 시작되면 안 된다 — 그래야 pointerdown이 먼저 그 객체를 선택해버리는 부작용 없이,
+  // 아래 handleObjectClick이 깨끗하게 "이 자리에 이미지 삽입"만 처리한다. Frame은
+  // 원래도 이 wrapper의 drag 대상이 아니므로(isFrame) 영향 없음.
+  const isImagePlacementMode = activeTool === 'image';
+  const skipDrag = isTextEditing || isTextSelectMode || isImageHighlightMode || isDrawPassthrough || isImagePlacementMode || isFrame || isSpacePressed;
   const drag = useObjectDrag(object.id);
 
   const style: CSSProperties = {
@@ -95,7 +104,7 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
           // (선택 자체는 여전히 가능하므로 pointer-events는 그대로 둔다).
           : object.locked
             ? 'not-allowed'
-            : isFrame || isDrawPassthrough
+            : isFrame || isDrawPassthrough || isImagePlacementMode
               ? 'default'
               : 'move',
     touchAction: 'none',
@@ -106,6 +115,30 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 다중 선택을 유지하고(같은 동작을 여러 개에 한 번에 적용하고 싶을 수 있으니),
   // 그 외에는 이 객체 하나만 선택한다 — useObjectDrag.ts의 pointerdown 선택 규칙과
   // 동일한 원칙.
+  // 요구사항(이미지 삽입 확장, 2026-09): '이미지' 도구가 활성화된 상태에서 기존
+  // 객체(Text/Image/Arrow/Rectangle) 위를 클릭해도 그 자리에 새 이미지가 삽입되어야
+  // 한다 — 지금까지는 Canvas.tsx의 handleBackgroundClick이 e.target===e.currentTarget
+  // (즉 진짜 빈 캔버스)일 때만 반응해서, 객체 위를 클릭하면 아무 일도 일어나지
+  // 않았다(그 객체가 선택될 뿐, 위 isImagePlacementMode로 이제 그마저도 막았다).
+  // Frame은 이미 자기 표면 클릭을 스스로 처리하므로(FrameObjectView.tsx의
+  // handleClick) 여기서는 제외한다 — 포함시키면 Frame 표면 클릭 시 그 안쪽
+  // 핸들러와 이 바깥 wrapper 핸들러가 둘 다 반응해 이미지가 두 번(frameId 있음/
+  // 없음 각각) 생긴다. stopPropagation으로 이 클릭이 canvas-root의
+  // handleBackgroundClick까지 번지는 것도 막는다(그쪽은 target 불일치로 이미
+  // 무시하지만, 의도를 명확히 하기 위해 명시적으로 막아둔다).
+  const handleObjectClick = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (isFrame) return;
+    const { activeTool: tool, setTool } = useToolStore.getState();
+    if (tool !== 'image') return;
+    e.stopPropagation();
+    const world = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
+    // if (isFrame) return; 위 줄 덕분에 TS도 여기선 object.type이 'frame'이 아님을
+    // 알고 있어서(control flow narrowing) frameId 접근에 별도 분기가 필요 없다.
+    const frameId = object.frameId ?? null;
+    useImagePickerStore.getState().requestPicker(world.x, world.y, frameId);
+    setTool('select');
+  };
+
   const handleContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
@@ -122,6 +155,7 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
       // 관여하지 않는 순수 식별용 속성이다.
       data-object-id={object.id}
       style={style}
+      onClick={handleObjectClick}
       onContextMenu={handleContextMenu}
       {...(skipDrag ? {} : drag)}
     >
