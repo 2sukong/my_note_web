@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { PdfOverlayTextView } from './PdfOverlayTextView';
 import { PdfOverlayShapeView } from './PdfOverlayShapeView';
 import { PdfOverlayImageView } from './PdfOverlayImageView';
@@ -18,14 +19,26 @@ import { PdfOverlayImageView } from './PdfOverlayImageView';
  * displayScale 계산: 폰트 크기(baseFontSize)처럼 %로 표현할 수 없는 값을 실제 CSS px로
  * 바꾸려면 "지금 화면에 실제로 그려지는 px 대 페이지 기준 px(PDF_PAGE_REFERENCE_SCALE)"
  * 비율이 필요하다. 이 레이어의 래퍼가 부모 `.pdf-viewer-page`와 정확히 같은 크기로
- * 그려지므로(inset:0), 래퍼 자신의 getBoundingClientRect().width를 pageWidth로 나누면
- * 곧 그 비율이다 — 별도로 pageRef를 이 컴포넌트까지 넘겨받을 필요가 없다. 패널 리사이즈/
- * 창 크기 변화에 맞춰 다시 재는 것은 ResizeObserver가 담당한다(useOverlayHighlightTool.ts의
- * SVG viewBox 접근과 달리, 폰트 크기는 CSS만으로 표현할 수 없어 JS 재계산이 꼭 필요하다).
+ * 그려지므로(inset:0), 래퍼 자신의 실제 렌더링 폭을 pageWidth로 나누면 곧 그 비율이다 —
+ * 별도로 pageRef를 이 컴포넌트까지 넘겨받을 필요가 없다.
+ *
+ * 버그 수정(2026-09-13, canvas/pdf/PdfOverlayLinkMarkersLayer.tsx에서 먼저 발견된 것과
+ * 동일한 문제 — 그 파일의 동일한 주석 참고): 최종 비율은 (1) 패널 폭에 따른 반응형
+ * 축소(max-width:100%, 레이아웃에 실제로 반영됨)와 (2) pageZoom(`.pdf-viewer-page`의
+ * transform:scale, 시각적으로만 확대) 두 가지가 함께 만든다. 예전엔 이 둘을 구분하지
+ * 않고 getBoundingClientRect().width(transform 이후 크기 포함)를 ResizeObserver
+ * 콜백에서만 쟀는데, ResizeObserver는 레이아웃 박스 크기만 관찰해서 transform만
+ * 바뀌는 경우(=Ctrl+휠로 pageZoom만 바뀌는 경우)엔 콜백이 다시 호출되지 않는다 — 그
+ * 결과 확대한 뒤에는 이 글자 크기 배율이 확대 전 값에 멈춰(오버레이 글자/주석이 PDF
+ * 확대를 따라가지 못함) 있었다. 고친 방식: ResizeObserver 쪽은 offsetWidth(transform의
+ * 영향을 받지 않는 순수 레이아웃 폭)로 "반응형 축소분"(layoutRatio)만 재고, pageZoom은
+ * usePdfViewerStore를 reactive하게 구독해서 렌더링마다 곱한다.
  */
 export function PdfOverlayObjectsLayer({ pageWidth, pageHeight }: { pageWidth: number; pageHeight: number }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [displayScale, setDisplayScale] = useState(1);
+  const [layoutRatio, setLayoutRatio] = useState(1);
+  const pageZoom = usePdfViewerStore((s) => s.pageZoom);
+  const displayScale = layoutRatio * (pageZoom > 0 ? pageZoom : 1);
   const objects = usePdfOverlayStore((s) => s.objects);
 
   useLayoutEffect(() => {
@@ -33,8 +46,8 @@ export function PdfOverlayObjectsLayer({ pageWidth, pageHeight }: { pageWidth: n
     if (!el || pageWidth <= 0) return;
 
     const measure = () => {
-      const width = el.getBoundingClientRect().width;
-      if (width > 0) setDisplayScale(width / pageWidth);
+      const width = el.offsetWidth;
+      if (width > 0) setLayoutRatio(width / pageWidth);
     };
     measure();
 
