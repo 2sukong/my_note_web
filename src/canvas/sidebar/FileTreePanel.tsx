@@ -135,7 +135,7 @@ function ContextMenu() {
     items.push({
       // 요구사항(휴지통): 더 이상 즉시 영구 삭제가 아니라 휴지통으로 이동(복구 가능)이라
       // 확인 대화상자 없이 바로 처리한다 — 실수로 지워도 휴지통 패널에서 복원할 수 있다.
-      label: '삭제(휴지통으로 이동)',
+      label: '삭제',
       danger: true,
       onClick: () => void deleteFile(menu.id),
     });
@@ -144,7 +144,7 @@ function ContextMenu() {
     items.push({ label: '이름 바꾸기', onClick: () => startRenaming(menu.id) });
     items.push({ label: '복제', onClick: () => void duplicatePage(menu.id) });
     items.push({
-      label: '삭제(휴지통으로 이동)',
+      label: '삭제',
       danger: true,
       onClick: () => void deletePage(menu.id),
     });
