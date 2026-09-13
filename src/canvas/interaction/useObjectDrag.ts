@@ -147,6 +147,36 @@ export function useObjectDrag(objectId: string) {
     if (!state.dragging) {
       if (Math.hypot(dxScreen, dyScreen) < DRAG_THRESHOLD_PX) return;
       state.dragging = true;
+
+      // 요구사항(Frame 이동 시 텍스트뿐 아니라 화살표/사각형/이미지 등 모든 자식이
+      // 함께 선택되도록): 실제로 드래그가 시작되는 이 시점에만 확장한다 — 그냥
+      // 클릭(Frame 자체를 리사이즈하려는 목적일 수 있음)만으로는 Frame 단일 선택
+      // (8방향 리사이즈 핸들)을 그대로 유지해야 하므로 여기서 처리한다. 이동 대상
+      // (state.startPositions)에 Frame이 포함돼 있으면 그 Frame의 자식(frameId로
+      // 연결된 Text/Image/Arrow/Rectangle 전부, getFrameChildIds)도 이동 대상 +
+      // 화면상 선택 표시(selectedIds) 양쪽에 합친다. 실제 위치 이동 자체는
+      // objectsStore.moveObjectTo의 Frame cascade가 이미 처리하므로 안전하게
+      // 중복 호출된다(위 함수 주석 "Phase 7 다중 선택 노트" 참고) — 여기서 하는 일은
+      // 오직 "그 자식들도 선택된 것처럼 보이게" 하는 것뿐이다.
+      const objectsAtDragStart = useObjectsStore.getState().objects;
+      const newlySelectedChildIds: string[] = [];
+      for (const id of Object.keys(state.startPositions)) {
+        if (objectsAtDragStart[id]?.type !== 'frame') continue;
+        for (const childId of useObjectsStore.getState().getFrameChildIds(id)) {
+          if (state.startPositions[childId]) continue; // 이미 이동 대상(중복 방지)
+          const child = objectsAtDragStart[childId];
+          if (!child || child.locked) continue; // 잠긴 자식은 이동 대상에서 제외(선택 표시도 생략)
+          state.startPositions[childId] = { x: child.x, y: child.y };
+          newlySelectedChildIds.push(childId);
+        }
+      }
+      if (newlySelectedChildIds.length > 0) {
+        const currentSelected = useInteractionStore.getState().selectedIds;
+        useInteractionStore
+          .getState()
+          .setSelection([...currentSelected, ...newlySelectedChildIds.filter((id) => !currentSelected.includes(id))]);
+      }
+
       useInteractionStore.getState().setMode('drag');
       useHistoryStore.getState().beginTransaction('drag');
       // 실제 드래그로 확정된 이 시점에만 캡처를 잡는다 — 커서가 요소 밖으로

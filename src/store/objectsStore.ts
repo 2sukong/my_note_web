@@ -288,6 +288,17 @@ interface ObjectsState {
   /** id가 속한 그룹의 전체 멤버 id 목록을 반환한다(그룹이 없으면 [id] 하나만).
    * useObjectDrag/useObjectDeleteShortcut이 "그룹째 함께 이동/삭제"할 때 쓴다. */
   getGroupMemberIds: (id: string) => string[];
+  /**
+   * 요구사항(Frame 이동 시 모든 자식 함께 선택): frameId가 이 Frame을 가리키는
+   * 모든 객체의 id를 타입 무관(Text/Image/Arrow/Rectangle 전부, hasFrameId 기준)하게
+   * 반환한다. frameId가 이 Frame과 실제로 일치하는 객체만 대상이라, 시각적으로
+   * Frame 위에 놓여 있어도 frameId가 다르거나 없으면(자유 배치) 포함되지 않는다 —
+   * 이 프로젝트는 "자유 배치형" 캔버스라 위치가 아니라 논리적 소속(frameId)만을
+   * 기준으로 삼는다(FrameObjectView.tsx/moveObjectTo cascade와 동일한 기준).
+   * useObjectDrag.ts가 Frame 드래그가 실제로 시작되는 시점에 이 목록을 selectedIds에
+   * 합쳐서 "함께 선택됨"으로 보이게 한다.
+   */
+  getFrameChildIds: (frameId: string) => string[];
 
   /**
    * Phase 8: Page를 전환할 때 fileTreeStore가 호출한다. patches/undo 기록 없이
@@ -746,6 +757,13 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
       if (!groupId) return [id];
       return Object.values(objects)
         .filter((o) => o.groupId === groupId)
+        .map((o) => o.id);
+    },
+
+    getFrameChildIds: (frameId) => {
+      const objects = get().objects;
+      return Object.values(objects)
+        .filter((o) => hasFrameId(o) && o.frameId === frameId)
         .map((o) => o.id);
     },
   };
