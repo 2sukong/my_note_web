@@ -69,6 +69,32 @@ function applyShiftCssVar(isOpen: boolean, width: number) {
   document.documentElement.style.setProperty('--pdf-viewer-shift', `${shift}px`);
 }
 
+/**
+ * 요구사항(내부 하이퍼링크, Phase 9): Page→PDF 링크로 이동하면 store/linkNavigationStore.ts가
+ * fileTreeStore.openPage(다른 Page)를 부른 직후 이 store의 openViewer를 부른다. 그런데
+ * canvas/pdf/PdfLibraryRail.tsx는 "currentPageId가 바뀌면 그 Page엔 아직 없을 수도 있는
+ * 이전 Viewer를 닫는다"는 별개의 기존 규칙을 갖고 있어서(PdfLibraryRail.tsx의 currentPageId
+ * effect 참고), 두 로직이 겹치면 방금 연 Viewer가 그 effect에 의해 곧바로 닫혀버리는
+ * 경쟁 상태가 생긴다. storage/fileTreeStore.ts의 suppressAutosave와 같은 "모듈 전역
+ * 1회성 플래그" 패턴으로 해결한다 — openPage를 부르기 직전에 켜두면, 뒤이어 실제로
+ * 발동하는 PdfLibraryRail의 effect가 자기 차례에 딱 한 번만 건너뛰고 스스로 끈다(아래
+ * consumeSuppressNextAutoClose). effect가 아예 발동하지 않는 경우(같은 Page 안에서
+ * PDF만 바꾸는 등 currentPageId 자체가 안 바뀌는 경우)에도 다음 진짜 Page 전환 때
+ * 엉뚱하게 소비되지 않도록, 호출부(linkNavigationStore.ts)는 실제로 Page가 바뀔 때만
+ * 이 함수를 부른다.
+ */
+let suppressNextAutoClose = false;
+export function markSuppressNextAutoClose(): void {
+  suppressNextAutoClose = true;
+}
+/** PdfLibraryRail.tsx 전용 — 플래그를 읽고 그 자리에서 바로 꺼서(1회성) 매번 새로
+ * 소비된다. */
+export function consumeSuppressNextAutoClose(): boolean {
+  const value = suppressNextAutoClose;
+  suppressNextAutoClose = false;
+  return value;
+}
+
 interface PdfViewerState {
   openPdfId: string | null;
   currentPageIndex: number;

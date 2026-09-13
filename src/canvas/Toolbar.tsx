@@ -12,6 +12,7 @@ import {
   FrameToolIcon,
   HighlighterIcon,
   ImageToolIcon,
+  LinkIcon,
   RectangleToolIcon,
   SelectIcon,
   TextToolIcon,
@@ -38,6 +39,7 @@ const TOOL_ICONS: Record<ToolId, React.ComponentType<{ size?: number }>> = {
   image: ImageToolIcon,
   arrow: ArrowToolIcon,
   rectangle: RectangleToolIcon,
+  link: LinkIcon,
 };
 
 /**
@@ -179,6 +181,14 @@ export function Toolbar() {
       <div className="canvas-toolbar-divider" />
       <ToolButton tool="arrow" activeTool={activeTool} label="화살표" onClick={() => selectTool('arrow')} />
       <ToolButton tool="rectangle" activeTool={activeTool} label="사각형" onClick={() => selectTool('rectangle')} />
+
+      {/* 요구사항(내부 하이퍼링크, Phase 9): 클릭 두 번(출발지→도착지)으로 링크를
+          만드는 1회용 도구 — text/frame/image와 같은 관례로 별도 그룹(구분선)에 둔다.
+          실제 클릭 처리는 canvas/interaction/useLinkTool.ts(메인 캔버스)/
+          canvas/pdf/useOverlayLinkTool.ts(PDF)가 담당하고, 이 버튼은 다른 도구 버튼과
+          완전히 동일하게 selectTool만 호출한다. */}
+      <div className="canvas-toolbar-divider" />
+      <ToolButton tool="link" activeTool={activeTool} label="링크" onClick={() => selectTool('link')} />
 
       {/* 요구사항(2026-09-09, 손잡이 위치를 오른쪽 끝으로): 손잡이-옆 아이콘 간격이
           다른 아이콘들 사이 간격과 같아야 하므로 다른 도구 버튼들과 같은 flex 컨테이너

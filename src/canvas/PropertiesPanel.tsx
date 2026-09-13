@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TextObject } from '../types/object';
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
+import { useLinkStore } from '../store/linkStore';
+import { useFileTreeStore } from '../storage/fileTreeStore';
 import { useHistoryStore } from '../store/historyStore';
 import { useFontStore } from '../store/fontStore';
 import { useToolStore } from '../store/toolStore';
@@ -86,8 +88,27 @@ export function PropertiesPanel() {
   const fineSelection = useInteractionStore((s) => s.fineSelection);
   const deselect = useInteractionStore((s) => s.deselect);
   const objectsRecord = useObjectsStore((s) => s.objects);
+  const links = useLinkStore((s) => s.links);
   const activeTool = useToolStore((s) => s.activeTool);
   const setTool = useToolStore((s) => s.setTool);
+
+  if (fineSelection?.kind === 'link') {
+    const link = links[fineSelection.linkId];
+    if (!link) return null;
+    return (
+      <PanelShell title="링크" onClose={deselect} panelKey={`link:${fineSelection.linkId}`}>
+        <LinkSection
+          targetPageId={link.target.pageId}
+          targetIsPdf={link.target.surface === 'pdf'}
+          targetPageIndex={link.target.pageIndex}
+          onDelete={() => {
+            void useLinkStore.getState().removeLink(fineSelection.linkId);
+            deselect();
+          }}
+        />
+      </PanelShell>
+    );
+  }
 
   if (fineSelection?.kind === 'highlight') {
     const owner = objectsRecord[fineSelection.objectId];
@@ -1674,6 +1695,43 @@ export function StrokeWidthRow({ value, onChange }: { value: number; onChange: (
         ))}
       </TileGroup>
     </Row>
+  );
+}
+
+/** 요구사항(내부 하이퍼링크, 링크 삭제 UX): 링크 마커가 선택됐을 때(fineSelection
+ * kind:'link') 보여주는 패널 — 어디로 이동하는 링크인지 간단히 설명하고, "링크 삭제"
+ * 버튼을 제공한다(사용자 확정: 우클릭 메뉴 대신 기존 선택/삭제 UX(Delete 키)와
+ * 나란히 이 버튼도 함께). 대상 이름을 보여주는 것 자체가 목적이 아니라 "삭제" 동작이
+ * 핵심이라 최소한의 정보만 담는다 — 대상 PDF의 파일명은 그 PDF가 지금 열려있는
+ * Page 소속이 아닐 수도 있어(PDF Library가 Page 스코프라 다른 Page의 PDF 항목은
+ * 메모리에 없다) 항상 정확히 보여줄 수 없으므로, 대상 Page 이름 + (PDF면) 페이지
+ * 번호까지만 표시한다. */
+export function LinkSection({
+  targetPageId,
+  targetIsPdf,
+  targetPageIndex,
+  onDelete,
+}: {
+  targetPageId: string;
+  targetIsPdf: boolean;
+  targetPageIndex?: number;
+  onDelete: () => void;
+}) {
+  const targetPageName = useFileTreeStore((s) => s.pages[targetPageId]?.name) ?? '(삭제된 페이지)';
+  const destinationLabel = targetIsPdf
+    ? `${targetPageName} · PDF ${(targetPageIndex ?? 0) + 1}페이지`
+    : targetPageName;
+  return (
+    <>
+      <Row label="이동 위치">
+        <span className="properties-link-destination" title={destinationLabel}>
+          {destinationLabel}
+        </span>
+      </Row>
+      <button type="button" className="properties-link-delete-btn" onClick={onDelete}>
+        링크 삭제
+      </button>
+    </>
   );
 }
 

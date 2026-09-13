@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Canvas } from './canvas/Canvas';
 import { FileTreePanel } from './canvas/sidebar/FileTreePanel';
 import { useFileTreeStore } from './storage/fileTreeStore';
+import { useLinkStore } from './store/linkStore';
 
 /**
  * Phase 8: 앱이 뜨면 가장 먼저 fileTreeStore.init()으로 IndexedDB에서 File/Page
@@ -15,6 +16,11 @@ function App() {
 
   useEffect(() => {
     void useFileTreeStore.getState().init();
+    // 요구사항(내부 하이퍼링크, Phase 9): 링크는 store/linkStore.ts 주석대로 Page
+    // 단위로 지연 로딩하지 않고 앱이 뜰 때 전체를 한 번에 불러온다 — fileTreeStore.init()과
+    // 독립적인 별개의 로딩이라(서로 기다릴 필요 없음) 그냥 나란히 fire-and-forget으로
+    // 시작한다.
+    void useLinkStore.getState().loadAll();
   }, []);
 
   const isReady = loaded && currentPageId !== null;

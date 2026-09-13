@@ -251,3 +251,28 @@ export function DragHandleIcon({ size = 14 }: IconProps) {
     </svg>
   );
 }
+
+/** 요구사항(내부 하이퍼링크, Phase 9): 상단 툴바 🔗 버튼과 캔버스/PDF 위 링크 마커
+ * (canvas/LinkMarkersLayer.tsx, canvas/pdf/PdfOverlayLinkMarkersLayer.tsx)가 함께
+ * 쓰는 사슬고리(체인 링크) 아이콘 — 두 개의 겹친 둥근 사각형 고리로 표현하는 흔한
+ * "링크" 심볼을 이 파일의 다른 아이콘들과 같은 선(stroke) 톤으로 그렸다. */
+export function LinkIcon({ size = 18 }: IconProps) {
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
+      <path
+        d="M8.3 11.7a3 3 0 0 0 4.3.2l2-2a3 3 0 0 0-4.2-4.2l-1.1 1.1"
+        stroke="currentColor"
+        strokeWidth={STROKE_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.7 8.3a3 3 0 0 0-4.3-.2l-2 2a3 3 0 0 0 4.2 4.2l1.1-1.1"
+        stroke="currentColor"
+        strokeWidth={STROKE_WIDTH}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

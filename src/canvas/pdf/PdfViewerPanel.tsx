@@ -23,6 +23,8 @@ import { usePdfViewerZoom } from './usePdfViewerZoom';
 import { useOverlayImagePlacementTool } from './useOverlayImagePlacementTool';
 import { usePdfOverlayImagePickerStore } from '../../store/pdfOverlayImagePickerStore';
 import { spawnOverlayImageAt } from './spawnOverlayImage';
+import { useOverlayLinkTool } from './useOverlayLinkTool';
+import { PdfOverlayLinkMarkersLayer } from './PdfOverlayLinkMarkersLayer';
 import './PdfViewerPanel.css';
 
 const THUMB_WIDTH = 64;
@@ -302,6 +304,9 @@ export function PdfViewerPanel() {
   useOverlayTextSelectionTools(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   useDrawOverlayShapeTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   useOverlayImagePlacementTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
+  // 요구사항(내부 하이퍼링크, Phase 9): 위 훅들과 동일하게 stagePage가 없으면(pageWidth/
+  // height<=0) 스스로 아무 것도 하지 않으므로 항상 호출해도 안전하다.
+  useOverlayLinkTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   usePdfViewerZoom(stageRef, stagePage?.width ?? 0);
 
   // 요구사항(2026-09, 필름스트립 빨간 테두리): "지금 보고 있는" 페이지는 디바운스 저장을
@@ -506,6 +511,7 @@ export function PdfViewerPanel() {
             <PdfOverlayObjectsLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayShapeDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
             <PdfOverlayTextDraftLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
+            <PdfOverlayLinkMarkersLayer pageWidth={stagePage.width} pageHeight={stagePage.height} />
           </div>
         )}
         {!stagePage && stageError && (

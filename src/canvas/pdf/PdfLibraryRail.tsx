@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useFileTreeStore } from '../../storage/fileTreeStore';
 import { usePdfLibraryStore } from '../../store/pdfLibraryStore';
-import { usePdfViewerStore } from '../../store/pdfViewerStore';
+import { usePdfViewerStore, consumeSuppressNextAutoClose } from '../../store/pdfViewerStore';
 import { PdfFileIcon, PlusIcon } from '../../icons/Icons';
 import './PdfLibraryRail.css';
 
@@ -96,9 +96,18 @@ export function PdfLibraryRail() {
   // currentPageId 변경 시 검색 패널을 닫는 것과 같은 이유로, 다른 Page의 PDF를 보여주던
   // Viewer가 열려 있었다면 같이 닫는다(Library 소속 자체가 Page 단위이므로, Page를
   // 벗어난 순간 그 Viewer가 가리키던 PDF는 더 이상 "지금 화면"의 것이 아니다).
+  //
+  // 요구사항(내부 하이퍼링크, Phase 9): 단, store/linkNavigationStore.ts가 Page→PDF
+  // 링크를 따라 "이 Page를 연 직후 곧바로 그 PDF의 Viewer를 다시 연다"고 미리 표시해둔
+  // 경우(markSuppressNextAutoClose)는 예외다 — 표시가 없을 때와 완전히 동일하게
+  // loadForPage는 그대로 부르되(이 Page의 PDF 목록 자체는 항상 최신이어야 하므로),
+  // closeViewer만 이번 한 번 건너뛴다. consumeSuppressNextAutoClose가 플래그를 읽는 즉시
+  // 꺼버리므로(1회성) 그다음 Page 전환부터는 원래 동작으로 자동 복귀한다.
   useEffect(() => {
     if (currentPageId) void loadForPage(currentPageId);
-    usePdfViewerStore.getState().closeViewer();
+    if (!consumeSuppressNextAutoClose()) {
+      usePdfViewerStore.getState().closeViewer();
+    }
     setRenamingId(null);
     setContextMenu(null);
     setHoverOpen(false);

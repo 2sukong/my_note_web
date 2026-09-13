@@ -61,8 +61,13 @@ export function useObjectDrag(objectId: string) {
     // useDrawTextTool.ts)로 흘려보내야 한다 — stopPropagation도, pointer capture도
     // 하지 않고 즉시 리턴해서 이벤트가 그대로 버블링되게 한다. PdfOverlayShapeView.tsx가
     // 이미 쓰고 있는 것과 동일한 패턴(activeTool !== 'select'면 무시).
+    //
+    // 요구사항(내부 하이퍼링크, Phase 9): 🔗 도구도 같은 이유로 추가한다 — 링크
+    // 생성은 클릭만 처리하고(드래그 없음, canvas/interaction/useLinkTool.ts) 기존
+    // 객체 위를 클릭해도 그 객체가 선택/이동되면 안 되므로, 여기서 즉시 리턴해
+    // stopPropagation 없이 그 클릭이 그대로 컨테이너까지 버블링되게 한다.
     const tool = useToolStore.getState().activeTool;
-    if (tool !== 'select' && (SHAPE_TOOL_IDS.includes(tool) || tool === 'text')) return;
+    if (tool !== 'select' && (SHAPE_TOOL_IDS.includes(tool) || tool === 'text' || tool === 'link')) return;
     e.stopPropagation(); // 캔버스 레벨 pan/deselect/마퀴 핸들러로 전파되지 않도록
 
     const interaction = useInteractionStore.getState();

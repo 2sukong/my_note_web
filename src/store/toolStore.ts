@@ -5,6 +5,7 @@ import { LINE_HEIGHT_DEFAULT } from '../objects/text/lineSpacing';
 import { DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH } from '../objects/frame/frameDefaults';
 import type { FrameTheme } from '../objects/frame/frameStyles';
 import type { TextDefaultPreset } from './textDefaultPresetsStore';
+import { useLinkDraftStore } from './linkDraftStore';
 
 /**
  * Phase 4: 캔버스 상단 툴바에서 고르는 "현재 도구".
@@ -52,7 +53,8 @@ export type ToolId =
   | 'frame'
   | 'image'
   | 'arrow'
-  | 'rectangle';
+  | 'rectangle'
+  | 'link';
 
 export const SHAPE_TOOL_IDS: ToolId[] = ['arrow', 'rectangle'];
 
@@ -192,7 +194,18 @@ export const useToolStore = create<ToolState>((set) => ({
 
   // 요구사항(형광펜 지우개): 형광펜 도구를 벗어나면 지우개 모드도 함께 꺼서, 나중에
   // 다시 형광펜 도구로 돌아왔을 때 지우개가 켜진 채로 남아있는 것을 방지한다.
-  setTool: (tool) => set((s) => ({ activeTool: tool, highlightEraserActive: tool === 'highlight' ? s.highlightEraserActive : false })),
+  //
+  // 요구사항(내부 하이퍼링크, Phase 9): 🔗 도구를 벗어나면(완료 없이 다른 도구를
+  // 고르거나 Esc 등으로) "클릭 한 번 = 출발지 확정"까지만 하고 남겨진 linkDraftStore의
+  // pending을 함께 비운다 — 안 그러면 다음에 다시 🔗 도구를 켰을 때 예전 출발지가
+  // 그대로 남아, 전혀 다른 세션의 첫 클릭이 갑자기 "두 번째 클릭"(링크 확정)으로
+  // 오인식된다. toolStore가 store/linkDraftStore를 직접 참조하는 건 이례적이지만,
+  // interactionStore.ts가 pdfOverlaySelectionStore를 정리하는 것과 같은 이유(도구/선택
+  // 전환이라는 "교차 관심사"를 한 곳에서 처리)로 최소한만 가져다 쓴다.
+  setTool: (tool) => {
+    if (tool !== 'link') useLinkDraftStore.getState().clear();
+    set((s) => ({ activeTool: tool, highlightEraserActive: tool === 'highlight' ? s.highlightEraserActive : false }));
+  },
   // 색을 고르는 것은 "칠하겠다"는 의도이므로 지우개 모드를 함께 끈다.
   setHighlightColor: (color) => set({ highlightColor: color, activeTool: 'highlight', highlightEraserActive: false }),
   setHighlightEraserActive: (active) => set({ highlightEraserActive: active, activeTool: 'highlight' }),

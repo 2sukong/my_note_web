@@ -67,6 +67,35 @@
   overflow-y: auto;
 }
 
+/* 요구사항(내부 하이퍼링크, 링크 삭제 UX): PropertiesPanel.tsx의 LinkSection. 기존
+   .properties-save-preset-btn과 같은 크기/여백 관례를 따르되, "삭제"라는 되돌릴 수 없는
+   동작이라는 걸 알 수 있도록 위험색(빨강 계열) 텍스트/테두리를 쓴다 — 이 파일에 아직
+   없던 유일한 색이라 새로 하나 추가한다(다른 곳의 CSS 변수를 재사용하지 않고 직접
+   지정 — 위험색은 이 버튼 하나뿐이라 변수화할 만큼의 재사용성이 없다고 판단). */
+.properties-link-destination {
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.properties-link-delete-btn {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid #e5484d;
+  background: transparent;
+  color: #e5484d;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.properties-link-delete-btn:hover {
+  background: rgba(229, 72, 77, 0.08);
+}
+
 /* Phase 8(부분 서식): 텍스트 편집 중 드래그로 구간을 선택했을 때, 이 패널의 컨트롤이
    객체 전체가 아니라 그 구간에만 적용된다는 걸 알려주는 작은 안내문. */
 .properties-range-hint {

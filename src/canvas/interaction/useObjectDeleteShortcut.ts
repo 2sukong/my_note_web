@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useInteractionStore } from '../../store/interactionStore';
 import { useObjectsStore } from '../../store/objectsStore';
+import { useLinkStore } from '../../store/linkStore';
 
 /**
  * Phase 4(2차): 선택된 객체(Text/Image/Frame 등)나 fine-selection된
@@ -39,11 +40,16 @@ export function useObjectDeleteShortcut() {
 
       if (fineSelection) {
         e.preventDefault();
-        const { kind, objectId, lineId, id } = fineSelection;
-        if (kind === 'highlight') {
-          useObjectsStore.getState().removeHighlight(objectId, lineId, id);
+        // 요구사항(내부 하이퍼링크, Phase 9): 링크 마커(kind:'link')는 objectId/lineId
+        // 자체가 없는 별개의 레코드(linkStore)라서, 나머지 두 kind와 함께 구조분해할
+        // 수 없다(그러면 TS가 kind==='link'일 때 없는 필드를 읽는다고 에러를 낸다) —
+        // kind로 먼저 좁힌 뒤에만 각 분기의 필드를 읽는다.
+        if (fineSelection.kind === 'link') {
+          void useLinkStore.getState().removeLink(fineSelection.linkId);
+        } else if (fineSelection.kind === 'highlight') {
+          useObjectsStore.getState().removeHighlight(fineSelection.objectId, fineSelection.lineId, fineSelection.id);
         } else {
-          useObjectsStore.getState().removeAnnotation(objectId, lineId, id);
+          useObjectsStore.getState().removeAnnotation(fineSelection.objectId, fineSelection.lineId, fineSelection.id);
         }
         useInteractionStore.getState().deselect();
         return;

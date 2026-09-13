@@ -1,7 +1,8 @@
 import type { ArrowObject, ShapeObject, TextObject } from '../../types/object';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
-import { PanelShell, ArrowSection, RectangleSection } from '../PropertiesPanel';
+import { useLinkStore } from '../../store/linkStore';
+import { PanelShell, ArrowSection, RectangleSection, LinkSection } from '../PropertiesPanel';
 import { PdfOverlayTextSection } from './PdfOverlayTextSection';
 
 /**
@@ -24,8 +25,36 @@ import { PdfOverlayTextSection } from './PdfOverlayTextSection';
  */
 export function PdfOverlayPropertiesPanel() {
   const selectedId = usePdfOverlaySelectionStore((s) => s.selectedId);
+  const selectedLinkId = usePdfOverlaySelectionStore((s) => s.selectedLinkId);
   const deselect = () => usePdfOverlaySelectionStore.getState().select(null);
   const objects = usePdfOverlayStore((s) => s.objects);
+  const links = useLinkStore((s) => s.links);
+
+  // 요구사항(내부 하이퍼링크, 링크 삭제 UX): PDF 오버레이 쪽 링크 마커 선택도 메인
+  // 캔버스(PropertiesPanel.tsx의 fineSelection kind:'link')와 완전히 같은 LinkSection을
+  // 그대로 재사용한다 — object/update prop만으로 동작하는 ArrowSection/RectangleSection과
+  // 같은 이유로 이 파일에서도 안전하게 재사용 가능.
+  if (selectedLinkId) {
+    const link = links[selectedLinkId];
+    if (!link) return null;
+    return (
+      <PanelShell
+        title="링크"
+        onClose={() => usePdfOverlaySelectionStore.getState().selectLink(null)}
+        panelKey={`pdfoverlay-link:${selectedLinkId}`}
+      >
+        <LinkSection
+          targetPageId={link.target.pageId}
+          targetIsPdf={link.target.surface === 'pdf'}
+          targetPageIndex={link.target.pageIndex}
+          onDelete={() => {
+            void useLinkStore.getState().removeLink(selectedLinkId);
+            usePdfOverlaySelectionStore.getState().selectLink(null);
+          }}
+        />
+      </PanelShell>
+    );
+  }
 
   if (!selectedId) return null;
   const object = objects[selectedId];

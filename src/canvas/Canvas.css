@@ -337,3 +337,53 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 요구사항(내부 하이퍼링크, Phase 9): canvas/LinkMarkersLayer.tsx의 마커 하나. 다른
+   world 좌표 객체(canvas-object)와 나란히 canvas-world 안에 그려지므로 pan/zoom을
+   그대로 함께 받는다 — 그래서 크기를 화면 px가 아니라 world 단위로 주고, 줄어들어도
+   최소 판독 가능하도록 아이콘 자체는 작게 유지한다.
+   스타일(2026-09-12 수정): 파란 배경 원을 없애고 canvas-toolbar-btn(Toolbar.tsx)과
+   같은 언어로 맞췄다 — 채워진 배경 없이 아이콘 선(currentColor)만 그리고, 평소엔
+   var(--color-text-secondary), hover 시 var(--color-text)로 톤이 짙어진다(다른
+   아이콘들과 동일한 관례). 선택 상태만 강조색을 쓴다 — 배경 없이도 우클릭으로
+   선택했다는 걸 알아볼 수 있어야 하므로. */
+.link-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.link-marker:hover {
+  color: var(--color-text);
+}
+
+.link-marker.is-selected {
+  color: var(--color-accent, #3d7fff);
+  outline: 2px solid var(--color-accent, #3d7fff);
+  outline-offset: 2px;
+}
+
+/* 요구사항(링크 생성 UX 개선, 2026-09-13): 🔗 도구로 첫 번째 지점을 클릭한 직후,
+   두 번째 지점을 기다리는 동안 그 자리에 뜨는 임시 마커(canvas/LinkMarkersLayer.tsx의
+   LinkDraftMarker, canvas/pdf/PdfOverlayLinkMarkersLayer.tsx의 동일한 draft 렌더링) —
+   아직 실제 링크가 아니므로(클릭/드래그에 반응하지 않음) is-selected와는 시각적으로
+   구분되도록 테두리를 점선으로, 그리고 은은하게 깜빡여서 "대기 중"임을 알린다. */
+.link-marker.is-draft {
+  color: var(--color-accent, #3d7fff);
+  outline: 2px dashed var(--color-accent, #3d7fff);
+  outline-offset: 3px;
+  border-radius: 50%;
+  animation: link-draft-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes link-draft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

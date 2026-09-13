@@ -2,6 +2,7 @@ import { openDB } from 'idb';
 import type { DBSchema, IDBPDatabase } from 'idb';
 import type { CanvasObject } from '../types/object';
 import type { Viewport } from '../types/viewport';
+import type { LinkRecord } from '../types/link';
 
 /**
  * Phase 8: 파일 시스템 계층 + Page(독립 캔버스) + objects/이미지 영구 저장.
@@ -71,10 +72,22 @@ interface MyNoteDBSchema extends DBSchema {
   images: { key: string; value: ImageRecord };
   /** 단순 키-값(예: rootFileIds, lastOpenPageId). keyPath 없이 out-of-line key로 관리. */
   meta: { key: string; value: unknown };
+  /** Phase 9(내부 하이퍼링크): Page/PDF 어디에 있든 링크 전부를 이 하나의 스토어에
+   * 평평하게 담는다 — source/target이 각각 page/pdf surface를 자유롭게 섞을 수
+   * 있어서(PDF↔PDF, Page↔PDF 등) Page별/PDF별로 나눠 저장하면 오히려 "이 Page를
+   * 가리키는 링크가 다른 어디에 있는지" 찾기 위해 전체를 훑어야 하는 처지가 같아진다
+   * — store/linkStore.ts가 시작 시 전체를 한 번에 읽어 메모리에 올려두고 쓴다
+   * (링크 개수가 objects만큼 많아질 일은 없다고 보고 pageObjects 같은 지연 로딩은
+   * 두지 않았다). */
+  links: { key: string; value: LinkRecord };
 }
 
 const DB_NAME = 'my-note-web';
-const DB_VERSION = 1;
+/** Phase 9: links 스토어 추가로 1→2. idb의 upgrade()는 "이미 그 버전으로 열어본 적
+ * 있는 기존 DB"에서는 버전이 실제로 올라갈 때만 다시 실행되므로(하단 각 스토어의
+ * contains 가드는 다른 이유로 존재 — 이 파일 초반 히스토리 참고), links 스토어를
+ * 실제로 새로 만들려면 이 숫자 자체를 반드시 올려야 한다. */
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBPDatabase<MyNoteDBSchema>> | null = null;
 
@@ -97,6 +110,9 @@ export function getDB(): Promise<IDBPDatabase<MyNoteDBSchema>> {
         }
         if (!db.objectStoreNames.contains('meta')) {
           db.createObjectStore('meta');
+        }
+        if (!db.objectStoreNames.contains('links')) {
+          db.createObjectStore('links', { keyPath: 'id' });
         }
       },
     });

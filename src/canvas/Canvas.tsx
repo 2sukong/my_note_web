@@ -14,6 +14,7 @@ import { useImagePaste } from './interaction/useImagePaste';
 import { useTextPaste } from './interaction/useTextPaste';
 import { useDrawShapeTool } from './interaction/useDrawShapeTool';
 import { useDrawTextTool } from './interaction/useDrawTextTool';
+import { useLinkTool } from './interaction/useLinkTool';
 import { useMarqueeSelect } from './interaction/useMarqueeSelect';
 import { useUndoRedoShortcut } from './interaction/useUndoRedoShortcut';
 import { useClipboardShortcuts } from './interaction/useClipboardShortcuts';
@@ -37,6 +38,8 @@ import { PdfLibraryRail } from './pdf/PdfLibraryRail';
 import { PdfViewerPanel } from './pdf/PdfViewerPanel';
 import { PdfOverlayPropertiesPanel } from './pdf/PdfOverlayPropertiesPanel';
 import { usePdfOverlaySelectionStore } from '../store/pdfOverlaySelectionStore';
+import { LinkMarkersLayer } from './LinkMarkersLayer';
+import { LinkCreationBanner } from './LinkCreationBanner';
 import './Canvas.css';
 
 const GRID_SIZE = 40; // world 단위. zoom에 따라 화면상 픽셀 크기가 변한다.
@@ -64,6 +67,10 @@ export function Canvas() {
   // (pdfOverlaySelectionStore.ts 주석 참고) "PDF Viewer가 열려 있는지"를 따로 검사할
   // 필요 없이 이 값의 유무만으로 정확히 분기할 수 있다.
   const pdfOverlaySelectedId = usePdfOverlaySelectionStore((s) => s.selectedId);
+  // 요구사항(내부 하이퍼링크, Phase 9): PDF 쪽 링크 마커가 선택돼 있을 때도(오버레이
+  // 객체 선택과 배타적) 같은 이유로 PdfOverlayPropertiesPanel로 분기해야 그 안의
+  // "링크" 패널(LinkSection)이 보인다.
+  const pdfOverlaySelectedLinkId = usePdfOverlaySelectionStore((s) => s.selectedLinkId);
 
   // 버그 수정: canvas-root는 왼쪽 파일트리 사이드바 폭만큼 화면 왼쪽 끝에서 오프셋돼
   // 있다 — clientToWorld(utils/coords.ts)가 포인터 좌표를 world로 바꿀 때 그 오프셋을
@@ -88,6 +95,7 @@ export function Canvas() {
   useTextPaste();
   useDrawShapeTool(containerRef);
   useDrawTextTool(containerRef);
+  useLinkTool(containerRef);
   useUndoRedoShortcut();
   useGroupShortcut();
   const { cursor, isSpacePressed } = usePan(containerRef);
@@ -212,7 +220,12 @@ export function Canvas() {
       <PdfLibraryRail />
       <PdfViewerPanel />
       <Toolbar />
-      {pdfOverlaySelectedId ? <PdfOverlayPropertiesPanel /> : <PropertiesPanel />}
+      {/* 요구사항(링크 생성 UX 개선, 2026-09-13): 🔗 도구가 켜져 있을 때만 스스로
+          보였다 사라지는 안내 배너 — LinkBackButton은 "뒤로 버튼이 UX상 어울리지
+          않는다"는 피드백으로 없앴다(store/linkNavigationStore.ts 상단 주석 참고 —
+          이동 후 마우스가 도착 아이콘 위에 그대로 남는 방식으로 대체). */}
+      <LinkCreationBanner />
+      {pdfOverlaySelectedId || pdfOverlaySelectedLinkId ? <PdfOverlayPropertiesPanel /> : <PropertiesPanel />}
       <ObjectContextMenu />
 
       <input
@@ -246,6 +259,9 @@ export function Canvas() {
           <MarqueeOverlay />
           <SelectionOverlay />
           <ImageCropOverlay />
+          {/* 요구사항(내부 하이퍼링크, Phase 9): 링크 마커도 실제 필기 콘텐츠가 아니라
+              탐색용 UI라서 PNG/JPG/PDF 내보내기에서 함께 제외한다. */}
+          <LinkMarkersLayer />
         </div>
       </div>
     </div>

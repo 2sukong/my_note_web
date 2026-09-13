@@ -13,7 +13,16 @@ export type InteractionMode = 'idle' | 'select' | 'drag' | 'resize' | 'pan' | 't
  */
 export type FineSelection =
   | { kind: 'highlight'; objectId: string; lineId: string; id: string }
-  | { kind: 'annotation'; objectId: string; lineId: string; id: string };
+  | { kind: 'annotation'; objectId: string; lineId: string; id: string }
+  /** 요구사항(내부 하이퍼링크, Phase 9): 링크 마커도 하이라이트/주석과 마찬가지로
+   * objectsStore의 CanvasObject가 아니라 별도 store(linkStore)의 레코드라서, "지금 이
+   * 링크 마커 하나가 선택돼 있다"는 상태를 selectedIds가 아니라 여기 얹는다 — 그래야
+   * canvas/interaction/useObjectDeleteShortcut.ts의 기존 Delete/Backspace 처리와
+   * PropertiesPanel.tsx의 패널 분기 로직을 그대로(각 kind 분기 하나만 추가) 재사용할
+   * 수 있다. objectId/lineId 자리는 링크에는 없는 개념이지만, id(다른 kind와 형식을
+   * 맞추기 위한 필드)와 linkId가 항상 같은 값이라 호출부에서 어느 필드를 읽을지 갈라
+   * 타지 않아도 된다. */
+  | { kind: 'link'; linkId: string; id: string };
 
 interface InteractionState {
   mode: InteractionMode;
@@ -54,7 +63,10 @@ interface InteractionState {
  */
 function clearPdfOverlaySelectionIfAny() {
   const pdfSelection = usePdfOverlaySelectionStore.getState();
-  if (pdfSelection.selectedId !== null) pdfSelection.clear();
+  // 요구사항(내부 하이퍼링크, Phase 9): PDF 쪽 링크 마커 선택(selectedLinkId)도 같은
+  // 이유로 함께 정리한다 — 안 그러면 메인 캔버스에서 새로 뭔가를 선택했는데도 PDF
+  // 쪽 "링크" 속성 패널이 계속 남아있는, 기존 selectedId와 똑같은 버그가 생긴다.
+  if (pdfSelection.selectedId !== null || pdfSelection.selectedLinkId !== null) pdfSelection.clear();
 }
 
 export const useInteractionStore = create<InteractionState>((set, get) => ({

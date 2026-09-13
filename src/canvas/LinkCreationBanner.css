@@ -1,0 +1,20 @@
+/* 요구사항(링크 생성 UX 개선, 2026-09-13): canvas-toolbar(top:12px, 버튼 높이 34px +
+   위아래 padding 4px씩 = 42px 높이, Canvas.css 참고) 바로 아래, 같은 가로 중앙 정렬
+   (left:50% + translateX(-50%))로 8px 여백을 두고 뜬다 — 툴바와 세로로 짝을 맞춘
+   느낌을 주기 위해 같은 위치 규칙을 그대로 따랐다. 클릭을 가로막지 않도록
+   pointer-events는 끈다(안내 문구만 보여줄 뿐 상호작용 대상이 아니다). */
+.link-creation-banner {
+  position: fixed;
+  top: 62px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  pointer-events: none;
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
