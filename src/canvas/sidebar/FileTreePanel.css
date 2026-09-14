@@ -18,6 +18,10 @@
   color: var(--color-text);
   user-select: none;
   transition: width 0.15s ease;
+  /* 요구사항(드롭 인디케이터 색상/굵기 통일, 2026-09-14): 순서 변경 가로선과 "폴더
+     안으로" 점선 테두리는 서로 다른 모양(실선 vs 점선)으로 의미를 구분하되, 같은
+     드래그앤드롭 신호라는 걸 알 수 있도록 색은 이 변수 하나로 통일한다. */
+  --color-drop-indicator: var(--color-text);
 }
 
 .file-tree-expand-tab {
@@ -191,18 +195,28 @@
 
 .file-tree-file-row.is-drop-target {
   background: var(--color-accent-soft);
-  outline: 1px dashed var(--color-text-secondary);
+  outline: 1.5px dashed var(--color-drop-indicator);
 }
 
-/* 같은 위치 내 순서 변경(reorder) 시 "이 항목의 위/아래에 끼워 넣는다"는 걸 보여주는
-   가는 선. inset box-shadow를 쓰는 이유: border를 쓰면 그만큼 행 높이가 늘어나
-   목록 전체가 들썩이는데, box-shadow는 레이아웃에 영향을 주지 않는다. */
-.file-tree-row.is-drop-before {
-  box-shadow: inset 0 2px 0 0 var(--color-text);
+/* 요구사항(자리 예약 미리보기 + 가로선 디자인, 2026-09-14): 순서 변경(reorder) 시
+   "여기에 끼워 넣는다"는 걸 보여주는 실제 레이아웃 요소(FileTreePanel.tsx의
+   DropGapLine). 예전에는 행 자체에 inset box-shadow를 그려서(레이아웃에 영향 없이)
+   위/아래 선을 표시했지만, box-shadow는 행의 border-radius를 그대로 물려받아 선의
+   양 끝이 둥글게 잘려 보였다(요구사항 3의 버그). 지금은 별도의 진짜 div라서
+   border-radius의 영향을 전혀 받지 않고 양 끝이 항상 완전한 직선이며, 높이가 있는
+   블록이라 다른 형제 항목들이 실제로 자리를 비켜준다("자리 예약" 효과, 요구사항 2). */
+.file-tree-drop-gap {
+  display: flex;
+  align-items: center;
+  height: 10px;
+  padding: 0 8px;
+  pointer-events: none;
 }
 
-.file-tree-row.is-drop-after {
-  box-shadow: inset 0 -2px 0 0 var(--color-text);
+.file-tree-drop-gap-line {
+  width: 100%;
+  height: 2px;
+  background: var(--color-drop-indicator);
 }
 
 .file-tree-page-row.is-active {

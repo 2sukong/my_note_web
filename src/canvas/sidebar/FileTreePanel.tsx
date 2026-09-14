@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useFileTreeStore } from '../../storage/fileTreeStore';
 import { useFileTreeUiStore } from './fileTreeUiStore';
+import { useFileTreeDragStore } from './fileTreeDragStore';
 import { fileSubtreeMatchesQuery } from '../../storage/fileTreeLogic';
 import { SaveStatusIndicator } from '../SaveStatusIndicator';
 import { TrashPanel } from './TrashPanel';
@@ -35,19 +36,40 @@ function readDragPayload(e: React.DragEvent): DragPayload | null {
   }
 }
 
-/**
- * 지금 드래그 중인 항목의 kind. dragover 시점엔 브라우저 보안 정책상 dataTransfer.getData()를
- * 읽을 수 없어(drop에서만 실제 값을 읽을 수 있음, dragover에선 .types만 확인 가능) 드롭
- * 미리보기(끼워넣기 표시선/영역)를 올바른 kind에 대해서만 보여주려면 dragstart 시점에
- * 별도로 기억해둬야 한다. 이 파일 안의 드래그 상호작용에서만 쓰는 일시적 상태라 zustand
- * store가 아니라 모듈 전역 변수로 충분하다.
- */
-let draggingKind: DragPayload['kind'] | null = null;
-
 /** 형제 목록에서 targetId 바로 다음 항목의 id를 찾는다("이 항목 다음에 끼워 넣기"용). */
 function siblingIdAfter(siblings: string[], targetId: string): string | undefined {
   const idx = siblings.indexOf(targetId);
   return idx === -1 ? undefined : siblings[idx + 1];
+}
+
+/**
+ * 요구사항(2026-09-14): 특정 형제 목록(group) 안에서 지금 드래그 중인 드롭 타깃이
+ * "이 id 바로 앞"이거나 "이 목록의 맨 끝"인지를 판정한다 — File 목록은 groupId로
+ * 부모 File의 id(최상위면 null)를, Page 목록은 groupId로 그 Page들이 속한 File의
+ * id를 넘긴다. FileNode/FileTreePanel이 이 결과로 DropGapLine을 그 자리에 끼워
+ * 넣는다(자리를 비켜주는 미리보기).
+ */
+function useDropGapMatcher(kind: 'file-order' | 'page-order', groupId: string | null) {
+  const dropTarget = useFileTreeDragStore((s) => s.dropTarget);
+  if (!dropTarget || dropTarget.kind !== kind) {
+    return { isBefore: () => false, isAtEnd: false };
+  }
+  const matchesGroup = dropTarget.kind === 'file-order' ? dropTarget.parentId === groupId : dropTarget.fileId === groupId;
+  if (!matchesGroup) return { isBefore: () => false, isAtEnd: false };
+  const beforeId = dropTarget.beforeId;
+  return { isBefore: (id: string) => beforeId === id, isAtEnd: beforeId === null };
+}
+
+/** 요구사항(가로선 디자인, 2026-09-14): 순서 변경 미리보기 — 실제로 목록 사이에 끼워
+ * 넣는 엘리먼트라서(box-shadow가 아니라) 행의 둥근 모서리(border-radius)에 영향을
+ * 전혀 받지 않고, 양 끝이 항상 완전한 직선으로 보인다. 높이가 있는 요소라 다른
+ * 항목들이 실제로 자리를 비켜준다(레이아웃에 실제로 반영되는 진짜 "자리 예약"). */
+function DropGapLine() {
+  return (
+    <div className="file-tree-drop-gap" aria-hidden>
+      <div className="file-tree-drop-gap-line" />
+    </div>
+  );
 }
 
 /** File/Page 이름을 인라인으로 편집하는 입력창. Enter/blur로 확정, Escape로 취소. */
@@ -175,11 +197,9 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
   // 요구사항(휴지통): 부모(FileNode)가 이미 pageIds를 필터링해서 넘기지만, 방어적으로
   const openPage = useFileTreeStore((s) => s.openPage);
   const renamePage = useFileTreeStore((s) => s.renamePage);
-  const movePage = useFileTreeStore((s) => s.movePage);
   const renamingId = useFileTreeUiStore((s) => s.renamingId);
   const stopRenaming = useFileTreeUiStore((s) => s.stopRenaming);
   const openContextMenu = useFileTreeUiStore((s) => s.openContextMenu);
-  const [dropEdge, setDropEdge] = useState<'before' | 'after' | null>(null);
 
   // 요구사항(휴지통): 부모(FileNode)가 이미 pageIds를 필터링해서 넘기지만, 방어적으로
   // 한 번 더 확인한다 — 트래시된 Page는 어떤 경로로도 트리에 보이면 안 된다.
@@ -188,44 +208,35 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
 
   return (
     <div
-      className={`file-tree-row file-tree-page-row${isActive ? ' is-active' : ''}${
-        dropEdge === 'before' ? ' is-drop-before' : dropEdge === 'after' ? ' is-drop-after' : ''
-      }`}
+      className={`file-tree-row file-tree-page-row${isActive ? ' is-active' : ''}`}
       style={{ paddingLeft: 16 + depth * 16 }}
       draggable={!isRenaming}
       onDragStart={(e) => {
-        draggingKind = 'page';
+        useFileTreeDragStore.getState().startDrag('page', id);
         e.dataTransfer.setData(DND_MIME, JSON.stringify({ kind: 'page', id } satisfies DragPayload));
         e.dataTransfer.effectAllowed = 'move';
       }}
       onDragEnd={() => {
-        draggingKind = null;
+        useFileTreeDragStore.getState().endDrag();
       }}
       onDragOver={(e) => {
         // 페이지는 페이지끼리만 순서를 바꿀 수 있다(파일과 섞인 순서 자체가 없음) —
         // 파일이 드래그 중이면 이 행 위/아래에 끼워 넣을 수 없다는 뜻으로 아예 무시한다.
-        if (draggingKind !== 'page' || !e.dataTransfer.types.includes(DND_MIME)) return;
+        const drag = useFileTreeDragStore.getState();
+        if (drag.draggingKind !== 'page' || !e.dataTransfer.types.includes(DND_MIME)) return;
         e.preventDefault();
-        const rect = e.currentTarget.getBoundingClientRect();
-        setDropEdge(e.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
-      }}
-      onDragLeave={() => setDropEdge(null)}
-      onDrop={(e) => {
-        e.preventDefault();
+        // 요구사항(다른 행 클로버시 목표를 덮어쓰지 않기): 순서 판정은 이 행에서 끝내고
+        // 바깥(부모 목록/전체 리스트)으로 더는 안 번지게 한다 — 안 그러면 이 dragover
+        // 직후에 바깥 컨테이너의 dragover가 다시 실행되며 방금 정한 목표를 덮어쓴다.
         e.stopPropagation();
-        const edge = dropEdge;
-        setDropEdge(null);
-        const payload = readDragPayload(e);
-        if (!payload || payload.kind !== 'page' || payload.id === id) return;
-        if (edge === 'before') {
-          void movePage(payload.id, page.fileId, id);
+        if (drag.draggingId === id) return; // 자기 자신 위에서는 갱신하지 않는다(그대로 두면 no-op).
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) {
+          drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: id });
         } else {
           const siblings = useFileTreeStore.getState().files[page.fileId]?.pageIds ?? [];
           const nextId = siblingIdAfter(siblings, id);
-          if (nextId === payload.id) return; // 이미 그 위치에 있음 — no-op
-          // nextId가 undefined면 id가 마지막 형제라는 뜻 — "맨 끝으로 옮기기"도 명시적인
-          // 재정렬 요청이므로 null로 넘겨 movePage의 "beforeId 없음 = no-op" 가드를 피한다.
-          void movePage(payload.id, page.fileId, nextId ?? null);
+          drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: nextId ?? null });
         }
       }}
       onClick={() => {
@@ -258,12 +269,20 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
   );
 }
 
-function FileNode({ id, depth }: { id: string; depth: number }) {
+function FileNode({
+  id,
+  depth,
+  isFirstSibling,
+  isLastSibling,
+}: {
+  id: string;
+  depth: number;
+  isFirstSibling: boolean;
+  isLastSibling: boolean;
+}) {
   const file = useFileTreeStore((s) => s.files[id]);
   const filesRecord = useFileTreeStore((s) => s.files);
   const pagesRecord = useFileTreeStore((s) => s.pages);
-  const moveFile = useFileTreeStore((s) => s.moveFile);
-  const movePage = useFileTreeStore((s) => s.movePage);
   const renameFile = useFileTreeStore((s) => s.renameFile);
   const expandedFileIds = useFileTreeUiStore((s) => s.expandedFileIds);
   const toggleExpanded = useFileTreeUiStore((s) => s.toggleExpanded);
@@ -271,9 +290,18 @@ function FileNode({ id, depth }: { id: string; depth: number }) {
   const stopRenaming = useFileTreeUiStore((s) => s.stopRenaming);
   const openContextMenu = useFileTreeUiStore((s) => s.openContextMenu);
   const searchQuery = useFileTreeUiStore((s) => s.searchQuery);
-  // 'into'는 기존처럼 "이 폴더 안으로"(파일이든 페이지든), 'before'/'after'는 이 파일과
-  // 같은 위치의 형제 파일들 사이에 끼워 넣는 순서 변경이다(행 위쪽/아래쪽 25% 영역).
-  const [dropZone, setDropZone] = useState<'before' | 'into' | 'after' | null>(null);
+  // 요구사항(2026-09-14): 드롭 판정은 이제 이 행 로컬 state가 아니라 전역
+  // fileTreeDragStore가 들고 있다 — 이 행이 지금 "폴더 안으로" 타깃인지만 여기서
+  // 파생해서 점선 테두리 표시에 쓴다(순서 변경 표시는 DropGapLine이 별도로 그린다).
+  const dropTarget = useFileTreeDragStore((s) => s.dropTarget);
+  const isIntoTarget =
+    (dropTarget?.kind === 'into-file' || dropTarget?.kind === 'into-file-pages') && dropTarget.fileId === id;
+  // 요구사항(자리 예약 미리보기, 2026-09-14): 이 File의 자식 File 목록/Page 목록
+  // 각각에서 지금 드롭하면 어디에 끼워지는지를 구해서, 그 자리에 DropGapLine을
+  // 실제로 끼워 넣는다(다른 항목들이 진짜로 밀려나 자리를 만든다). rules-of-hooks
+  // 때문에 아래의 조건부 return들보다 반드시 먼저 호출해야 한다.
+  const childFileGap = useDropGapMatcher('file-order', id);
+  const pageGap = useDropGapMatcher('page-order', id);
 
   // 요구사항(휴지통): 트래시된 File은 트리에 전혀 나타나지 않는다(휴지통 패널 전용).
   if (!file || file.deletedAt) return null;
@@ -303,56 +331,48 @@ function FileNode({ id, depth }: { id: string; depth: number }) {
   return (
     <div>
       <div
-        className={`file-tree-row file-tree-file-row${dropZone === 'into' ? ' is-drop-target' : ''}${
-          dropZone === 'before' ? ' is-drop-before' : dropZone === 'after' ? ' is-drop-after' : ''
-        }`}
+        className={`file-tree-row file-tree-file-row${isIntoTarget ? ' is-drop-target' : ''}`}
         style={{ paddingLeft: depth * 16 }}
         draggable={!isRenaming}
         onDragStart={(e) => {
-          draggingKind = 'file';
+          useFileTreeDragStore.getState().startDrag('file', id);
           e.dataTransfer.setData(DND_MIME, JSON.stringify({ kind: 'file', id } satisfies DragPayload));
           e.dataTransfer.effectAllowed = 'move';
         }}
         onDragEnd={() => {
-          draggingKind = null;
+          useFileTreeDragStore.getState().endDrag();
         }}
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_MIME)) return;
           e.preventDefault();
+          e.stopPropagation();
+          const drag = useFileTreeDragStore.getState();
           // 페이지는 파일 사이 순서에 끼어들 수 없다 — 항상 "이 폴더 안으로"만 허용.
-          if (draggingKind === 'page') {
-            setDropZone('into');
+          if (drag.draggingKind === 'page') {
+            drag.setDropTarget({ kind: 'into-file-pages', fileId: id });
             return;
           }
+          if (drag.draggingId === id) return; // 자기 자신 위에서는 갱신하지 않는다.
+          // 요구사항(2026-09-14, 최상단/최하단 드롭 영역 확장): 같은 목록의 첫/마지막
+          // File일 때는 위/아래 판정 존을 25%→50%로 넓혀서, 그 항목의 절반 어디에
+          // 놓아도 "그 위로"/"그 아래로"가 인식되게 한다. 단, 이 목록에 형제가 이
+          // File 하나뿐이면(첫째이자 막내) 넓히지 않는다 — 그러면 "폴더 안으로" 존이
+          // 완전히 사라져서 그 폴더 안에 아무것도 넣을 수 없게 되기 때문이다.
+          const onlyChild = isFirstSibling && isLastSibling;
+          const topThreshold = isFirstSibling && !onlyChild ? 0.5 : 0.25;
+          const bottomThreshold = isLastSibling && !onlyChild ? 0.5 : 0.75;
           const rect = e.currentTarget.getBoundingClientRect();
           const ratio = (e.clientY - rect.top) / rect.height;
-          setDropZone(ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'into');
-        }}
-        onDragLeave={() => setDropZone(null)}
-        onDrop={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const zone = dropZone;
-          setDropZone(null);
-          const payload = readDragPayload(e);
-          if (!payload || payload.id === id) return;
-          if (payload.kind === 'page') {
-            void movePage(payload.id, id);
-            return;
-          }
-          if (zone === 'before') {
-            void moveFile(payload.id, file.parentId, id);
-          } else if (zone === 'after') {
+          if (ratio < topThreshold) {
+            drag.setDropTarget({ kind: 'file-order', parentId: file.parentId, beforeId: id });
+          } else if (ratio > bottomThreshold) {
             const siblings = file.parentId
               ? (useFileTreeStore.getState().files[file.parentId]?.childFileIds ?? [])
               : useFileTreeStore.getState().rootFileIds;
             const nextId = siblingIdAfter(siblings, id);
-            if (nextId === payload.id) return; // 이미 그 위치에 있음 — no-op
-            // nextId가 undefined면 id가 마지막 형제라는 뜻 — "맨 끝으로 옮기기"도 명시적인
-            // 재정렬 요청이므로 null로 넘겨 moveFile의 "beforeId 없음 = no-op" 가드를 피한다.
-            void moveFile(payload.id, file.parentId, nextId ?? null);
+            drag.setDropTarget({ kind: 'file-order', parentId: file.parentId, beforeId: nextId ?? null });
           } else {
-            void moveFile(payload.id, id);
+            drag.setDropTarget({ kind: 'into-file', fileId: id });
           }
         }}
         onClick={() => {
@@ -384,12 +404,25 @@ function FileNode({ id, depth }: { id: string; depth: number }) {
       </div>
       {isExpanded && (
         <div>
-          {visibleChildFileIds.map((childId) => (
-            <FileNode key={childId} id={childId} depth={depth + 1} />
+          {visibleChildFileIds.map((childId, index) => (
+            <Fragment key={childId}>
+              {childFileGap.isBefore(childId) && <DropGapLine />}
+              <FileNode
+                id={childId}
+                depth={depth + 1}
+                isFirstSibling={index === 0}
+                isLastSibling={index === visibleChildFileIds.length - 1}
+              />
+            </Fragment>
           ))}
+          {childFileGap.isAtEnd && <DropGapLine />}
           {visiblePageIds.map((pageId) => (
-            <PageRow key={pageId} id={pageId} depth={depth + 1} />
+            <Fragment key={pageId}>
+              {pageGap.isBefore(pageId) && <DropGapLine />}
+              <PageRow id={pageId} depth={depth + 1} />
+            </Fragment>
           ))}
+          {pageGap.isAtEnd && <DropGapLine />}
         </div>
       )}
     </div>
@@ -402,6 +435,7 @@ export function FileTreePanel() {
   const pagesRecord = useFileTreeStore((s) => s.pages);
   const createFile = useFileTreeStore((s) => s.createFile);
   const moveFile = useFileTreeStore((s) => s.moveFile);
+  const movePage = useFileTreeStore((s) => s.movePage);
   const startRenaming = useFileTreeUiStore((s) => s.startRenaming);
   const isCollapsed = useFileTreeUiStore((s) => s.isCollapsed);
   const toggleCollapsed = useFileTreeUiStore((s) => s.toggleCollapsed);
@@ -409,7 +443,12 @@ export function FileTreePanel() {
   const setSearchQuery = useFileTreeUiStore((s) => s.setSearchQuery);
   const isTrashOpen = useFileTreeUiStore((s) => s.isTrashOpen);
   const openTrash = useFileTreeUiStore((s) => s.openTrash);
-  const [isRootDropTarget, setIsRootDropTarget] = useState(false);
+  // 요구사항(2026-09-14): 예전에는 이 컨테이너 자신의 dragover에서만 로컬 state를
+  // 켰다(자식 행들이 이벤트를 막지 않았기 때문에 사실상 트리 전체에서 드래그 중이면
+  // 항상 켜졌다). 이제 자식 행들이 stopPropagation()으로 더 구체적인 타깃을
+  // 확정하므로, 배경 강조는 "드래그가 진행 중인지"로 단순화한다.
+  const draggingKind = useFileTreeDragStore((s) => s.draggingKind);
+  const rootGap = useDropGapMatcher('file-order', null);
 
   if (isCollapsed) {
     return (
@@ -493,25 +532,55 @@ export function FileTreePanel() {
       </div>
 
       <div
-        className={`file-tree-list${isRootDropTarget ? ' is-drop-target' : ''}`}
+        className={`file-tree-list${draggingKind ? ' is-drop-target' : ''}`}
         onDragOver={(e) => {
-          if (e.dataTransfer.types.includes(DND_MIME)) {
-            e.preventDefault();
-            setIsRootDropTarget(true);
+          if (!e.dataTransfer.types.includes(DND_MIME)) return;
+          e.preventDefault();
+          // 이 핸들러는 자식 행이 stopPropagation()하지 않은 경우에만 실행된다 — 즉
+          // 목록의 어떤 특정 행 위도 아닌 "빈 공간"(스크롤 영역 하단의 남는 공간 등)
+          // 위에 있다는 뜻이다. 요구사항(맨 위/아래로 이동, 2026-09-14): File을 끄는
+          // 중이면 그 빈 공간을 "최상위 목록의 맨 끝"으로 해석해 즉시 타깃을 갱신한다.
+          // Page를 끄는 중이면 최상위에는 Page를 놓을 자리가 아예 없으므로 여기서
+          // 새로 타깃을 정하지 않고 그대로 둔다(sticky) — 예를 들어 어떤 File의
+          // 마지막 Page 아래 빈 공간까지 끌고 내려와도, 그 직전 행 위에서 계산됐던
+          // "그 File의 페이지 목록 맨 끝" 타깃이 그대로 살아있어 정확히 그 자리로
+          // 이동한다(스크린샷 요구사항: 페이지를 맨 아래 빈 공간까지 끌어도 마지막
+          // 페이지 다음에 정확히 들어간다).
+          const drag = useFileTreeDragStore.getState();
+          if (drag.draggingKind === 'file') {
+            drag.setDropTarget({ kind: 'file-order', parentId: null, beforeId: null });
           }
         }}
-        onDragLeave={() => setIsRootDropTarget(false)}
         onDrop={(e) => {
           e.preventDefault();
-          setIsRootDropTarget(false);
           const payload = readDragPayload(e);
-          // 최상위(root)는 File만 놓을 수 있다 — Page는 항상 어떤 File에 속해야 한다.
-          if (payload?.kind === 'file') void moveFile(payload.id, null);
+          const target = useFileTreeDragStore.getState().dropTarget;
+          if (payload && target) {
+            if (target.kind === 'file-order' && payload.kind === 'file') {
+              void moveFile(payload.id, target.parentId, target.beforeId);
+            } else if (target.kind === 'page-order' && payload.kind === 'page') {
+              void movePage(payload.id, target.fileId, target.beforeId);
+            } else if (target.kind === 'into-file' && payload.kind === 'file') {
+              void moveFile(payload.id, target.fileId);
+            } else if (target.kind === 'into-file-pages' && payload.kind === 'page') {
+              void movePage(payload.id, target.fileId);
+            }
+          }
+          useFileTreeDragStore.getState().endDrag();
         }}
       >
-        {visibleRootFileIds.map((id) => (
-          <FileNode key={id} id={id} depth={0} />
+        {visibleRootFileIds.map((id, index) => (
+          <Fragment key={id}>
+            {rootGap.isBefore(id) && <DropGapLine />}
+            <FileNode
+              id={id}
+              depth={0}
+              isFirstSibling={index === 0}
+              isLastSibling={index === visibleRootFileIds.length - 1}
+            />
+          </Fragment>
         ))}
+        {rootGap.isAtEnd && <DropGapLine />}
         {isSearching && visibleRootFileIds.length === 0 && (
           <div className="file-tree-search-empty">검색 결과가 없습니다</div>
         )}
