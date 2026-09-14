@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useLinkStore } from '../../store/linkStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
@@ -10,10 +10,13 @@ import { resolveAnchorPosition } from '../../utils/linkAnchor';
 import { LinkIcon } from '../../icons/Icons';
 import type { LinkAnchor, LinkRecord } from '../../types/link';
 
-// 실제 화면 CSS px 기준(2026-09-12 수정 — 아래 displayScale 관련 주석 참고). 요구사항:
-// 기존 20px의 1/3(7px)로 줄였다가, 너무 작다는 피드백으로 11px로 조정 — 그리고 이제는
-// 메인 캔버스 마커(canvas/LinkMarkersLayer.tsx)와 항상 같은 실제 화면 크기가 되도록
-// pageZoom/화면 크기와 무관하게 고정된다.
+// 페이지-로컬(reference-scale) 단위 기준 — 다른 오버레이 객체(하이라이트/도형 등)와
+// 같은 좌표계. 기존 20px의 1/3(7px)로 줄였다가, 너무 작다는 피드백으로 11px로 조정.
+// 요구사항 변경(2026-09-14): 한때(2026-09-12~13)는 pageZoom/패널 폭과 무관하게 항상
+// 같은 실제 화면 px로 고정했었는데(아래 옛 주석들은 그 결정의 기록), 사용자 피드백으로
+// "다른 오버레이 객체들처럼 PDF 확대(Ctrl+휠)에 따라 아이콘도 같이 커지고 작아져야
+// 한다"로 뒤집혔다 — 그래서 이제는 displayScale 보정 없이 이 값을 그대로 페이지-로컬
+// 크기로 쓴다(main 캔버스 쪽 canvas/LinkMarkersLayer.tsx의 동일한 변경과 짝을 이룬다).
 const MARKER_SIZE = 11;
 
 // screen px 기준 — canvas/LinkMarkersLayer.tsx의 DRAG_THRESHOLD_PX와 동일(그 파일의
@@ -47,36 +50,18 @@ function hitTestOverlayObjectId(local: { x: number; y: number }): string | null 
  * 동작한다. 객체 히트테스트는 DOM이 아니라 좌표 기반(hitTestOverlayObjectId)이라
  * elementFromPoint 트릭이 필요 없다.
  *
- * 크기(2026-09-12 수정, "PDF 마커가 일반 페이지 마커보다 크게/작게 보임"): 이 마커의
- * 위치는 pageWidth/pageHeight 기준 페이지-로컬 좌표를 %로 배치하므로 PDF 확대(Ctrl+휠
- * pageZoom)나 패널 폭에 따른 반응형 축소와 함께 자연스럽게 따라 움직여야 맞지만, 크기는
- * 그와 무관하게 canvas/LinkMarkersLayer.tsx의 마커와 항상 같은 실제 화면 px여야 한다
- * (요구사항). PdfOverlayObjectsLayer.tsx가 글자 크기(baseFontSize)를 실제 px로 바꿀 때
- * 쓰는 것과 같은 displayScale(그 파일 주석 참고 — "화면에 실제로 그려지는 px 대 페이지
- * 기준 px" 비율)을 그대로 재사용해, 목표 실제 px(MARKER_SIZE)를 거꾸로 페이지-로컬
- * 단위로 환산해서(MARKER_SIZE / displayScale) 그 값을 %로 넣는다 — 곱하는 방향만
- * 반대일 뿐 같은 변환이다.
- *
- * 버그 수정(2026-09-13, "PDF 확대(Ctrl+휠) 후 아이콘 크기가 다시 어긋남"): 아래
- * PdfOverlayLinkMarkersLayer의 displayScale은 (1) 패널 폭에 따른 반응형 축소(max-width:
- * 100%, 실제 레이아웃을 바꾸는 CSS)와 (2) pageZoom(`.pdf-viewer-page`의
- * transform:scale, 시각적으로만 확대) 두 가지가 함께 만드는 최종 비율이다. 예전엔 이
- * 둘을 구분하지 않고 래퍼의 getBoundingClientRect().width(transform 이후 크기를
- * 포함)를 ResizeObserver 콜백에서 그대로 쟀는데, ResizeObserver는 스펙상 "레이아웃
- * 박스" 크기만 관찰해서 transform만 바뀌는 경우(=pageZoom만 바뀌는 경우)에는 콜백
- * 자체가 다시 호출되지 않는다 — 그 결과 pageZoom을 바꾼 뒤에는 measure()가 다시
- * 실행되지 않아 displayScale이 확대 전 값에 멈춰버렸다(마커가 pageZoom 배율만큼
- * 더 커지거나 작아져 보임). 고친 방식: ResizeObserver 쪽에서는 offsetWidth(transform의
- * 영향을 받지 않는 순수 레이아웃 폭)로 "반응형 축소분"(layoutRatio)만 재고, pageZoom은
- * usePdfViewerStore를 reactive하게 구독해서 렌더링마다 곱한다 — pageZoom이 바뀌면 이
- * 구독 자체가 리렌더를 일으키므로 ResizeObserver 없이도 항상 최신 값으로 계산된다.
+ * 크기: 이 마커의 위치와 크기는 모두 pageWidth/pageHeight 기준 페이지-로컬 좌표/단위를
+ * %로 배치한다 — 다른 오버레이 객체(하이라이트/도형 등)와 완전히 같은 방식이라, PDF
+ * 확대(Ctrl+휠 pageZoom)나 패널 폭에 따른 반응형 축소와 함께 자연스럽게 커지고
+ * 작아진다. 요구사항 변경(2026-09-14): 한때(2026-09-12~13)는 canvas/LinkMarkersLayer.tsx
+ * 마커와 항상 같은 실제 화면 px로 고정했었는데(displayScale로 보정), "다른 객체들처럼
+ * 줌에 따라 같이 커지고 작아져야 한다"는 피드백으로 그 보정을 걷어냈다.
  */
 function PdfOverlayLinkMarkerDot({
   anchorX,
   anchorY,
   pageWidth,
   pageHeight,
-  displayScale,
   isSelected,
   onNavigate,
   onSelect,
@@ -86,7 +71,6 @@ function PdfOverlayLinkMarkerDot({
   anchorY: number;
   pageWidth: number;
   pageHeight: number;
-  displayScale: number;
   isSelected: boolean;
   /** 2026-09-13 수정(뒤로 버튼 제거): canvas/LinkMarkersLayer.tsx의 LinkMarkerDot과
    * 같은 이유로, 이동 후 뷰포트를 클릭 당시 마우스 위치에 맞추려면
@@ -164,9 +148,9 @@ function PdfOverlayLinkMarkerDot({
 
   const centerX = dragLocalPos ? dragLocalPos.x : anchorX;
   const centerY = dragLocalPos ? dragLocalPos.y : anchorY;
-  // 목표 실제 px(MARKER_SIZE)를 페이지-로컬 단위로 환산 — 위 컴포넌트 주석의
-  // displayScale 설명 참고.
-  const sizeLocal = displayScale > 0 ? MARKER_SIZE / displayScale : MARKER_SIZE;
+  // MARKER_SIZE를 그대로 페이지-로컬 크기로 쓴다 — 위 컴포넌트 주석 참고(보정 없이
+  // 다른 오버레이 객체와 같은 좌표계).
+  const sizeLocal = MARKER_SIZE;
   const x = centerX - sizeLocal / 2;
   const y = centerY - sizeLocal / 2;
 
@@ -195,11 +179,9 @@ function PdfOverlayLinkMarkerDot({
         onSelect();
       }}
     >
-      {/* 버그 수정: 이 SVG도 결국 .pdf-viewer-page의 transform:scale(pageZoom) 아래에서
-          그려지므로, 목표 실제 px(MARKER_SIZE)가 아니라 위에서 이미 역산해 둔
-          페이지-로컬 크기(sizeLocal)를 넣어야 같은 배율을 한 번 더 받아 최종적으로
-          MARKER_SIZE와 맞아떨어진다 — 여기에 MARKER_SIZE를 그대로 넣으면 아이콘만
-          이중으로 배율을 받아 마커 원(div) 크기와 어긋난다. */}
+      {/* 바깥 div와 같은 페이지-로컬 크기(sizeLocal)를 그대로 넣는다 — 이 SVG도
+          .pdf-viewer-page의 transform:scale(pageZoom) 아래에서 함께 그려지므로 다른
+          오버레이 객체처럼 pageZoom에 따라 자연스럽게 커지고 작아진다. */}
       <LinkIcon size={sizeLocal} />
     </div>
   );
@@ -211,14 +193,9 @@ function PdfOverlayLinkMarkerDot({
  * 가리키는 링크만 걸러서 보여준다 — PdfOverlayObjectsLayer.tsx와 마찬가지로
  * `.pdf-viewer-page` 안에서 pageWidth/pageHeight 기준 %로 배치한다.
  *
- * displayScale 측정도 PdfOverlayObjectsLayer.tsx와 완전히 같은 방식이다(그 파일의
- * 동일한 주석 참고) — 래퍼가 부모 `.pdf-viewer-page`와 정확히 같은 크기로 그려지므로
- * (inset:0) 래퍼 자신의 layoutRatio(offsetWidth 기준 반응형 축소분)에 pageZoom을
- * reactive하게 곱해 "화면에 실제로 그려지는 px 대 페이지 기준 px" 비율을 얻는다(위
- * PdfOverlayLinkMarkerDot 주석의 "버그 수정(2026-09-13...)" 참고 — 예전엔
- * getBoundingClientRect만으로 쟀다가 Ctrl+휠 확대 후 값이 갱신되지 않는 문제가 있었다).
- * 각 마커(PdfOverlayLinkMarkerDot)는 이 비율로 목표 실제 px(MARKER_SIZE)를 계산해
- * pageZoom/패널 크기와 무관하게 항상 같은 화면 크기를 유지한다.
+ * 크기 보정(displayScale) 없이 MARKER_SIZE를 그대로 페이지-로컬 단위로 쓴다(위
+ * PdfOverlayLinkMarkerDot 주석 참고) — 2026-09-14 요구사항 변경으로 pageZoom/패널
+ * 폭 보정 로직 자체를 걷어냈다.
  *
  * 클릭 동작(좌클릭=이동/우클릭=선택, 2026-09-11 확정, 2026-09-12 포인터 캡처로
  * 재구현 + 드래그 재배치 추가)은 canvas/LinkMarkersLayer.tsx와 완전히 동일한
@@ -232,13 +209,6 @@ function PdfOverlayLinkMarkerDot({
  */
 export function PdfOverlayLinkMarkersLayer({ pageWidth, pageHeight }: { pageWidth: number; pageHeight: number }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  // 버그 수정(2026-09-13): layoutRatio는 "반응형 축소분"만(offsetWidth — transform의
-  // 영향을 받지 않는 순수 레이아웃 폭 기준) ResizeObserver로 잰다. pageZoom은
-  // usePdfViewerStore를 아래에서 reactive하게 구독해 렌더링마다 곱한다 — 위 컴포넌트
-  // 주석의 "버그 수정(2026-09-13...)" 참고.
-  const [layoutRatio, setLayoutRatio] = useState(1);
-  const pageZoom = usePdfViewerStore((s) => s.pageZoom);
-  const displayScale = layoutRatio * (pageZoom > 0 ? pageZoom : 1);
   const links = useLinkStore((s) => s.links);
   const overlayObjects = usePdfOverlayStore((s) => s.objects);
   const selectedLinkId = usePdfOverlaySelectionStore((s) => s.selectedLinkId);
@@ -248,21 +218,6 @@ export function PdfOverlayLinkMarkersLayer({ pageWidth, pageHeight }: { pageWidt
   // 이유로, 🔗 도구의 첫 번째 클릭이 이 PDF 페이지를 가리키면 두 번째 클릭을 기다리는
   // 동안 강조된 임시 마커를 보여준다.
   const pendingDraft = useLinkDraftStore((s) => s.pending);
-
-  useLayoutEffect(() => {
-    const el = wrapperRef.current;
-    if (!el || pageWidth <= 0) return;
-
-    const measure = () => {
-      const width = el.offsetWidth;
-      if (width > 0) setLayoutRatio(width / pageWidth);
-    };
-    measure();
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [pageWidth]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -309,7 +264,6 @@ export function PdfOverlayLinkMarkersLayer({ pageWidth, pageHeight }: { pageWidt
             anchorY={pos.y}
             pageWidth={pageWidth}
             pageHeight={pageHeight}
-            displayScale={displayScale}
             isSelected={isSelected}
             onNavigate={(clientX, clientY) =>
               void useLinkNavigationStore.getState().navigateTo(other, { x: clientX, y: clientY })
@@ -330,7 +284,7 @@ export function PdfOverlayLinkMarkersLayer({ pageWidth, pageHeight }: { pageWidt
       {showDraft && (() => {
         const obj = pendingDraft.objectId ? overlayObjects[pendingDraft.objectId] : undefined;
         const pos = resolveAnchorPosition(pendingDraft, obj);
-        const sizeLocal = displayScale > 0 ? MARKER_SIZE / displayScale : MARKER_SIZE;
+        const sizeLocal = MARKER_SIZE;
         const x = pos.x - sizeLocal / 2;
         const y = pos.y - sizeLocal / 2;
         return (

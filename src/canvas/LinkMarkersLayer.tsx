@@ -12,11 +12,14 @@ import { clientToWorld } from '../utils/coords';
 import { LinkIcon } from '../icons/Icons';
 import type { LinkAnchor, LinkRecord } from '../types/link';
 
-// 실제 화면 CSS px 기준(2026-09-12 수정 — 아래 LinkMarkerDot의 sizeWorld 관련 주석
-// 참고). 요구사항: 기존 20px의 1/3(7px)로 줄였다가, 너무 작다는 피드백으로 11px로
-// 조정 — 그리고 이제는 캔버스 줌과 무관하게, PDF 오버레이 마커
-// (canvas/pdf/PdfOverlayLinkMarkersLayer.tsx)와 항상 같은 실제 화면 크기가 되도록
-// 고정된다.
+// world 단위(다른 필기 객체와 같은 좌표계) 기준. 요구사항 변경(2026-09-14): 기존엔
+// "캔버스 줌과 무관하게 항상 같은 실제 화면 크기"로 고정했었는데(2026-09-12 결정,
+// PDF 오버레이 마커 canvas/pdf/PdfOverlayLinkMarkersLayer.tsx와 화면 px 크기를
+// 맞추려는 목적), 사용자 피드백으로 "다른 객체들처럼 Ctrl+스크롤 확대/축소에 따라
+// 아이콘도 같이 커지고 작아져야 한다"로 뒤집혔다 — 그래서 이제는 zoom으로 나누는
+// 보정을 하지 않고 이 값을 그대로 world 크기로 쓴다(아래 LinkMarkerDot의 sizeWorld
+// 참고). 값 자체(11)는 zoom=1(기본 배율)일 때 예전 목표 화면 px와 같은 크기로
+// 보이도록 그대로 유지했다.
 const MARKER_SIZE = 11;
 
 // screen px 기준 — useObjectDrag.ts/useMarqueeSelect.ts의 DRAG_THRESHOLD_PX와 같은
@@ -77,16 +80,14 @@ function LinkMarkerDot({
   const pointerStart = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [dragWorldPos, setDragWorldPos] = useState<{ x: number; y: number } | null>(null);
-  // 버그 수정(2026-09-12, "PDF 마커와 크기가 다름"): canvas-world는 pan/zoom을
-  // transform:scale(zoom)으로 적용하므로(Canvas.css .canvas-world 주석), 이 마커도
-  // 다른 world 객체와 똑같이 그 스케일을 그대로 받는다 — 원 단위(MARKER_SIZE)를
-  // 그대로 폭/높이로 쓰면 줌에 따라 화면 크기가 커졌다 작았다 한다. zoom을
-  // reactive하게 구독해서, "줌이 곱해지고 나면 정확히 MARKER_SIZE(실제 px)가 되는"
-  // world 크기(MARKER_SIZE / zoom)를 역산해 쓴다 — canvas/pdf/PdfOverlayLinkMarkersLayer.tsx가
-  // displayScale로 하는 것과 완전히 같은 원리(그 파일 주석 참고), 대상 스케일 값만
-  // zoom으로 다르다.
-  const zoom = useViewportStore((s) => s.zoom);
-  const sizeWorld = zoom > 0 ? MARKER_SIZE / zoom : MARKER_SIZE;
+  // 요구사항 변경(2026-09-14): canvas-world는 pan/zoom을 transform:scale(zoom)으로
+  // 적용하므로(Canvas.css .canvas-world 주석), 이 마커도 다른 world 객체(하이라이트,
+  // 텍스트 등)와 완전히 같은 world 좌표계 안에 있다 — MARKER_SIZE를 그대로 폭/높이로
+  // 쓰면 그 스케일을 그대로 받아서 줌에 따라 화면 크기가 같이 커졌다 작아졌다 한다.
+  // 예전(2026-09-12)엔 이걸 "버그"로 보고 zoom으로 나눠 화면 크기를 고정했었지만,
+  // 사용자 피드백으로 "다른 객체들처럼 줌에 따라 커지고 작아지는 게 맞다"로 뒤집혔다 —
+  // 그래서 이제는 보정 없이 MARKER_SIZE를 그대로 world 크기로 쓴다.
+  const sizeWorld = MARKER_SIZE;
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -172,9 +173,9 @@ function LinkMarkerDot({
         onSelect();
       }}
     >
-      {/* 버그 수정: 이 SVG도 canvas-world의 transform:scale(zoom) 아래에서 그려지므로,
-          목표 실제 px(MARKER_SIZE)가 아니라 위에서 역산해 둔 world 크기(sizeWorld)를
-          넣어야 줌 배율을 한 번 더 받아 최종적으로 MARKER_SIZE와 맞아떨어진다. */}
+      {/* 바깥 div와 같은 world 크기(sizeWorld)를 그대로 넣는다 — 이 SVG도 canvas-world의
+          transform:scale(zoom) 아래에서 함께 그려지므로 다른 world 객체처럼 줌에 따라
+          자연스럽게 커지고 작아진다. */}
       <LinkIcon size={sizeWorld} />
     </div>
   );
@@ -267,12 +268,12 @@ export function LinkMarkersLayer() {
  * 요구사항(링크 생성 UX 개선, 2026-09-13): "첫 번째 지점 클릭 시 해당 위치에 임시
  * 링크 아이콘을 즉시 생성하고 테두리로 강조" — 실제 LinkMarkerDot과 달리 클릭/드래그에
  * 전혀 반응하지 않는 순수 표시용이다(아직 링크가 아니라 linkDraftStore.pending 하나뿐이라
- * 이동/재배치/선택할 대상 자체가 없다). 크기 계산은 LinkMarkerDot과 동일(zoom 역산,
- * 그 컴포넌트 주석 참고) — 실제 마커와 시각적으로 같은 크기로 보여야 하므로.
+ * 이동/재배치/선택할 대상 자체가 없다). 크기 계산은 LinkMarkerDot과 동일(MARKER_SIZE를
+ * 그대로 world 크기로 — 위 상수 주석 참고) — 실제 마커와 시각적으로 같은 크기로
+ * 보여야 하므로.
  */
 function LinkDraftMarker({ anchorX, anchorY }: { anchorX: number; anchorY: number }) {
-  const zoom = useViewportStore((s) => s.zoom);
-  const sizeWorld = zoom > 0 ? MARKER_SIZE / zoom : MARKER_SIZE;
+  const sizeWorld = MARKER_SIZE;
   return (
     <div
       className="link-marker is-draft"
