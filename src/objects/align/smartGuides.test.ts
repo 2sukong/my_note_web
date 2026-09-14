@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeFreeCornerSnap, computeResizeSnap, computeSmartGuides } from './smartGuides';
+import { computeArrowAxisSnap, computeFreeCornerSnap, computeResizeSnap, computeSmartGuides } from './smartGuides';
 import type { GuideTarget } from './smartGuides';
 
 const anchor = { id: 'anchor', x: 100, y: 100, width: 200, height: 100 };
@@ -116,6 +116,41 @@ describe('computeFreeCornerSnap', () => {
     const result = computeFreeCornerSnap({ x: 0, y: 0 }, { x: 101, y: 103 }, [other], 6, false, true);
     expect(result.x).toBeCloseTo(100);
     expect(result.y).toBeCloseTo(103); // untouched — y axis just never got a chance to be evaluated for square
+  });
+});
+
+describe('computeArrowAxisSnap', () => {
+  it('snaps to horizontal when the endpoint is nearly level with the anchor', () => {
+    const result = computeArrowAxisSnap({ x: 0, y: 0 }, { x: 200, y: 3 }, 6, false, false);
+    expect(result).not.toBeNull();
+    expect(result?.y).toBe(0);
+    expect(result?.x).toBe(200);
+    expect(result?.lines.some((l) => l.y1 === l.y2)).toBe(true);
+  });
+
+  it('snaps to vertical when the endpoint is nearly plumb with the anchor', () => {
+    const result = computeArrowAxisSnap({ x: 0, y: 0 }, { x: 3, y: 200 }, 6, false, false);
+    expect(result).not.toBeNull();
+    expect(result?.x).toBe(0);
+    expect(result?.y).toBe(200);
+    expect(result?.lines.some((l) => l.x1 === l.x2)).toBe(true);
+  });
+
+  it('does nothing when far from both horizontal and vertical', () => {
+    const result = computeArrowAxisSnap({ x: 0, y: 0 }, { x: 200, y: 200 }, 6, false, false);
+    expect(result).toBeNull();
+  });
+
+  it('does not touch an axis already locked by object alignment', () => {
+    // dx is within threshold (would normally trigger a vertical snap) but x is already
+    // locked by a position snap elsewhere, and y is far from horizontal too.
+    const result = computeArrowAxisSnap({ x: 0, y: 0 }, { x: 3, y: 200 }, 6, true, false);
+    expect(result).toBeNull();
+  });
+
+  it('ignores a drag that is too short to tell horizontal from vertical', () => {
+    const result = computeArrowAxisSnap({ x: 0, y: 0 }, { x: 2, y: 2 }, 6, false, false);
+    expect(result).toBeNull();
   });
 });
 

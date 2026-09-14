@@ -37,6 +37,11 @@ export interface FreeCornerSnapResult {
   width?: number;
   height?: number;
   lines: GuideLine[];
+  // 요구사항(화살표 수평/수직 정렬): 호출부(useDrawShapeTool.ts)가 "이 축은 이미 다른
+  // 객체와의 정렬로 스냅됐다"를 알아야, computeArrowAxisSnap이 그 축을 덮어쓰지 않고
+  // 비어있는 축에만 수평/수직 자기 정렬을 추가로 적용할 수 있다.
+  xSnapped?: boolean;
+  ySnapped?: boolean;
 }
 
 export interface ResizeEdgeFlags {
@@ -537,7 +542,54 @@ export function computeFreeCornerSnap(
     width,
     height,
     lines: [...collectVerticalLines(box, others), ...collectHorizontalLines(box, others), ...spacingLines, ...squareLines],
+    xSnapped,
+    ySnapped,
   };
+}
+
+/**
+ * 요구사항(화살표 생성 중 수평/수직 정렬): 화살표를 드래그로 그리는 동안, 시작점
+ * (anchor) 대비 끝점(free)이 다른 객체와는 무관하게 그 자체로 거의 수평이거나
+ * 수직이면 정확히 그 축에 딱 맞춰 스냅한다(PowerPoint/Excalidraw류의 "각도 스냅").
+ * computeFreeCornerSnap과 같은 threshold(screen px를 world 단위로 환산한 값)를
+ * 공유해서 민감도가 다른 정렬 가이드와 일관되게 느껴지도록 한다.
+ *
+ * xLocked/yLocked는 computeFreeCornerSnap이 이미 그 축을 다른 객체와의 정렬로
+ * 스냅했는지를 나타낸다 — 이미 스냅된 축은 건드리지 않는다(예: 화살표 끝점이 이미
+ * 다른 객체의 오른쪽 모서리에 x가 맞춰졌다면, 그 x는 그대로 두고 y만 수평 여부를
+ * 검사한다). dx/dy가 둘 다 threshold 이내면(드래그 자체가 거의 점 하나 수준으로
+ * 짧음) 어느 축으로 스냅할지 모호하므로 아무것도 하지 않는다.
+ */
+export function computeArrowAxisSnap(
+  anchor: Point,
+  free: Point,
+  threshold: number,
+  xLocked: boolean,
+  yLocked: boolean,
+): { x: number; y: number; lines: GuideLine[] } | null {
+  if (xLocked && yLocked) return null;
+
+  const dx = free.x - anchor.x;
+  const dy = free.y - anchor.y;
+  if (Math.abs(dx) <= threshold && Math.abs(dy) <= threshold) return null;
+
+  if (!yLocked && Math.abs(dy) <= threshold) {
+    return {
+      x: free.x,
+      y: anchor.y,
+      lines: [hLine('arrow-axis-h', anchor.y, Math.min(anchor.x, free.x), Math.max(anchor.x, free.x))],
+    };
+  }
+
+  if (!xLocked && Math.abs(dx) <= threshold) {
+    return {
+      x: anchor.x,
+      y: free.y,
+      lines: [vLine('arrow-axis-v', anchor.x, Math.min(anchor.y, free.y), Math.max(anchor.y, free.y))],
+    };
+  }
+
+  return null;
 }
 
 /**

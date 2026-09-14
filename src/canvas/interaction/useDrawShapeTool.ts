@@ -6,7 +6,7 @@ import { useDrawDraftStore } from '../../store/drawDraftStore';
 import { useObjectsStore } from '../../store/objectsStore';
 import { useAlignmentGuideStore } from '../../store/alignmentGuideStore';
 import { clientToWorld } from '../../utils/coords';
-import { computeFreeCornerSnap } from '../../objects/align/smartGuides';
+import { computeArrowAxisSnap, computeFreeCornerSnap } from '../../objects/align/smartGuides';
 import type { GuideTarget } from '../../objects/align/smartGuides';
 import { objectsInAlignmentScope } from '../../objects/align/frameScope';
 import { spawnShapeFromDraft, findFrameAt } from '../actions';
@@ -100,8 +100,32 @@ export function useDrawShapeTool(containerRef: RefObject<HTMLDivElement | null>)
       const threshold = SNAP_THRESHOLD_PX / viewport.zoom;
       const matchSquare = active.tool === 'rectangle';
       const snap = computeFreeCornerSnap(draftBefore.start, world, others, threshold, true, matchSquare);
-      useAlignmentGuideStore.getState().setLines(snap.lines);
-      useDrawDraftStore.getState().updateCurrent({ x: snap.x, y: snap.y });
+      let finalX = snap.x;
+      let finalY = snap.y;
+      let lines = snap.lines;
+
+      // 요구사항(화살표 수평/수직 정렬): 화살표를 그릴 때는 다른 객체와의 정렬과는
+      // 별개로, 끝점이 시작점 대비 거의 수평/수직이면 그 축에 딱 맞춰 스냅해서 잠깐
+      // 멈춘 듯한 느낌을 준다. 위 computeFreeCornerSnap이 이미 어느 축을 다른
+      // 객체와의 정렬로 스냅했다면(snap.xSnapped/ySnapped) 그 축은 그대로 두고,
+      // 아직 안 스냅된 축에만 추가로 적용한다.
+      if (active.tool === 'arrow') {
+        const axisSnap = computeArrowAxisSnap(
+          draftBefore.start,
+          { x: finalX, y: finalY },
+          threshold,
+          !!snap.xSnapped,
+          !!snap.ySnapped,
+        );
+        if (axisSnap) {
+          finalX = axisSnap.x;
+          finalY = axisSnap.y;
+          lines = [...lines, ...axisSnap.lines];
+        }
+      }
+
+      useAlignmentGuideStore.getState().setLines(lines);
+      useDrawDraftStore.getState().updateCurrent({ x: finalX, y: finalY });
     };
 
     const finishDraw = (e: PointerEvent) => {
