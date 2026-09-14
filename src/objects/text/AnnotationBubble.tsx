@@ -8,6 +8,7 @@ import { useFontStore } from '../../store/fontStore';
 import { highlightBackgroundFor } from './highlightColors';
 import { annotationVisualsFor } from './annotationColors';
 import { DEFAULT_FONT_FAMILY } from './fontOptions';
+import { mergeClientRectsByLine } from './domCaret';
 import {
   ANNOTATION_TOTAL_GAP_BASE,
   snapAnnotationOffsetY,
@@ -440,7 +441,15 @@ export function AnnotationBubble({
       const range = document.createRange();
       range.setStart(textNode, start);
       range.setEnd(textNode, end);
-      const rects = range.getClientRects();
+      // 버그 수정(주석 형광펜이 드래그한 위치에 정확히 그려지지 않음): 원래는
+      // range.getClientRects()가 돌려주는 rect를 그대로 그렸는데, 복잡한 스크립트
+      // (한글 등)는 글자 셰이핑/폰트 폴백 경계에서 시각적으로 하나로 이어진 구간도
+      // 여러 개의 작은 rect로 쪼개져 나올 수 있다(domCaret.ts의 mergeClientRectsByLine
+      // 문서 주석 참고 — 본문 하이라이트/드래그 미리보기는 이미 이 함수로 병합해서
+      // 그리고 있었는데, 주석 자기 자신의 하이라이트만 이 병합을 거치지 않아 드래그로
+      // 칠한 구간이 실제 글자 폭보다 좁게 쪼개지거나 어긋난 위치에 그려져 보였다).
+      // 본문과 동일하게 같은 줄(세로로 겹치는) rect들을 하나로 합쳐서 그린다.
+      const rects = mergeClientRectsByLine(range.getClientRects());
       for (let i = 0; i < rects.length; i++) {
         const r = rects[i];
         if (r.width <= 0 || r.height <= 0) continue;
@@ -491,8 +500,21 @@ export function AnnotationBubble({
   const colors = annotationVisualsFor(annotation.color ?? 'red');
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    e.stopPropagation();
     if (!allowOwnDrag || e.button !== 0) return; // 편집 중이거나 형광펜 도구 중엔 드래그 시작 안 함
+    // 버그 수정(주석 자기 자신의 텍스트를 형광펜으로 드래그할 때 실시간 미리보기가
+    // 전혀 안 뜨던 문제): 이 stopPropagation()이 위 조건과 무관하게 항상(형광펜 도구가
+    // 켜져 있어 allowOwnDrag가 false일 때도) 먼저 실행되고 있었다 — pointerdown이
+    // React 합성 이벤트 레벨이 아니라 실제 DOM에서도 더 이상 버블링되지 않아,
+    // useTextSelectionTools.ts가 캔버스 루트에 붙여둔 pointerdown 리스너(형광펜
+    // 드래그 시작을 알리는 highlightDragging 플래그를 여기서 켠다)가 주석 내부에서
+    // 시작한 드래그에 대해서는 전혀 호출되지 못했다. 그 결과 네이티브 파란 선택
+    // 음영을 숨기는 CSS도, 드래그 중 실시간 하이라이트 미리보기(HighlightDragPreview.tsx)도
+    // 켜지지 않아 손을 뗄 때까지 아무 것도 안 보이다가 갑자기 나타나는 것처럼 느껴졌다.
+    // 이제는 이 말풍선 자신을 실제로 드래그해 옮기는 경우(allowOwnDrag)에만
+    // stopPropagation해서 그 제스처가 다른 도구 로직과 섞이지 않게 하고, 그 외(형광펜/
+    // 주석 도구로 텍스트를 선택하는 경우)에는 그대로 버블링시켜 캔버스 루트가 정상적으로
+    // 드래그 시작을 감지하게 한다.
+    e.stopPropagation();
     dragRef.current = {
       pointerId: e.pointerId,
       startScreen: { x: e.clientX, y: e.clientY },
