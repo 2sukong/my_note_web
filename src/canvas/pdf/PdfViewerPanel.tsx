@@ -262,13 +262,34 @@ export function PdfViewerPanel() {
   // filmstripRef 엘리먼트 자신의 실제 크기 변화를 직접 관찰하면 최초 마운트 시 크기
   // (관찰 시작 시 한 번 즉시 콜백됨), transition 도중의 폭 변화, 리사이즈 핸들 드래그를
   // 전부 한 메커니즘으로 커버해 이런 시점 불일치 자체가 생기지 않는다.
+  //
+  // 버그 재발 수정(2026-09-13, 같은 증상 재현: "PDF를 처음 열 때는 필름스트립이 로딩이
+  // 덜 된 상태이고, 화살표를 한 번 눌러야 로드된다"): 위 ResizeObserver 자체는 옳았지만
+  // "언제 el을 관찰하기 시작하는가"에 구멍이 있었다. PDF를 새로 열면 이 컴포넌트는 먼저
+  // mounted=false인 채로 한 번 렌더링해 `return null`한다(필름스트립 DOM이 아직 없어
+  // filmstripRef.current===null) — 이 렌더 직후 실행되는 이 effect는 이미 (record가
+  // 채워져) recomputeVisibleRange가 새 참조가 된 상태라 실행은 되지만, `el`이 null이라
+  // 아무것도 관찰하지 못한 채 끝난다. 곧이어 별도 effect가 setMounted(true)를 호출해
+  // 실제 필름스트립 DOM이 그려지는 다음 렌더가 일어나지만, 그 사이 record는 안 바뀌므로
+  // recomputeVisibleRange의 참조도 그대로다 — 이 effect는 deps([recomputeVisibleRange])
+  // 만 비교하는 React 규칙상 "바뀐 게 없다"고 보고 다시 실행되지 않아, 실제로 존재하는
+  // filmstripRef DOM에는 옵저버가 끝내 한 번도 붙지 못한다(visibleRange가 초기값 {0,0}에
+  // 계속 머묾 → 필름스트립이 비어 보임). 그러다 사용자가 </> 화살표(페이지 이동이든
+  // 필름스트립 스크롤이든)를 눌러 scroll 이벤트가 발생하면, `onScroll={recomputeVisibleRange}`
+  // 가 직접 recompute를 실행해줘서 "그제서야" 채워지는 것처럼 보인 것. 수정: 이 effect의
+  // deps에 `mounted`를 추가해, 필름스트립 DOM이 실제로 생기는 렌더(mounted가
+  // false→true로 바뀌는 순간)에도 반드시 다시 실행되게 한다. 겸사겸사 observer 등록
+  // 직후 recomputeVisibleRange()를 한 번 직접 호출해서, ResizeObserver 자신의 최초
+  // 콜백 타이밍(스펙상 "즉시"이지만 구현체별 미세한 차이가 있을 수 있음)에 기대지 않고
+  // 그 프레임에 바로 값이 채워지게 했다.
   useEffect(() => {
     const el = filmstripRef.current;
     if (!el) return;
+    recomputeVisibleRange();
     const observer = new ResizeObserver(() => recomputeVisibleRange());
     observer.observe(el);
     return () => observer.disconnect();
-  }, [recomputeVisibleRange]);
+  }, [recomputeVisibleRange, mounted]);
 
   // 요구사항(2026-09-09): 상단 이전/다음 페이지 화살표(또는 필름스트립 썸네일 클릭 등
   // currentPageIndex가 바뀌는 어떤 경로로든)로 페이지가 바뀌면, 그 페이지의 썸네일이
