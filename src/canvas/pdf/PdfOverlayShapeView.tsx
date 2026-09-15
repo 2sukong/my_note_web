@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ArrowObject, ShapeObject } from '../../types/object';
-import { ShapeSvgContent } from '../../objects/shapes/ShapeSvgContent';
+import { MIN_VISUAL, ShapeSvgContent } from '../../objects/shapes/ShapeSvgContent';
 import { useToolStore } from '../../store/toolStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
@@ -92,6 +92,15 @@ export function PdfOverlayShapeView({
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
   };
 
+  // 버그 수정(2026-09-15): 화살표를 정확히 수평(height===0)/수직(width===0)으로
+  // 그리면 wrapper div의 width/height %가 0이 되거나(부모가 0폭/높이), 그보다 먼저
+  // <svg>의 viewBox 자체가 "0 0 W 0" 같은 값이 되어 SVG 스펙상 렌더링이 완전히
+  // 꺼진다(viewBox의 폭/높이 성분이 0이면 그 <svg>는 아무것도 그리지 않음 —
+  // ShapeSvgContent.tsx의 MIN_VISUAL 설명 참고). object.width/height 자체(저장된
+  // 값)는 그대로 두고, 여기 렌더링에서만 최소값을 보정한다.
+  const boxWidth = Math.max(object.width, MIN_VISUAL);
+  const boxHeight = Math.max(object.height, MIN_VISUAL);
+
   return (
     <div
       className={'pdf-overlay-shape' + (isSelected ? ' is-selected' : '')}
@@ -99,8 +108,8 @@ export function PdfOverlayShapeView({
         position: 'absolute',
         left: `${(object.x / pageWidth) * 100}%`,
         top: `${(object.y / pageHeight) * 100}%`,
-        width: `${(object.width / pageWidth) * 100}%`,
-        height: `${(object.height / pageHeight) * 100}%`,
+        width: `${(boxWidth / pageWidth) * 100}%`,
+        height: `${(boxHeight / pageHeight) * 100}%`,
         zIndex: object.zIndex,
         pointerEvents: 'auto',
         cursor: activeTool === 'select' ? 'move' : 'default',
@@ -109,7 +118,7 @@ export function PdfOverlayShapeView({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
-      <svg width="100%" height="100%" viewBox={`0 0 ${object.width} ${object.height}`} style={{ overflow: 'visible', display: 'block' }}>
+      <svg width="100%" height="100%" viewBox={`0 0 ${boxWidth} ${boxHeight}`} style={{ overflow: 'visible', display: 'block' }}>
         <ShapeSvgContent
           type={object.type}
           width={object.width}

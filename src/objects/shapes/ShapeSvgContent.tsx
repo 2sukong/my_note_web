@@ -24,7 +24,19 @@ export interface ShapeSvgContentProps {
   rounded?: boolean;
 }
 
-const MIN_VISUAL = 0.5; // 0-크기 대비, 실제 저장값은 건드리지 않고 렌더링에서만 보정
+/** 0-크기 대비, 실제 저장값은 건드리지 않고 렌더링에서만 보정.
+ * export하는 이유(2026-09-15, 수평/수직 화살표 안 보이는 버그 수정): 이 상수는
+ * 원래 이 컴포넌트 내부에서 <line>/<path> 좌표 계산에만 쓰였는데, 그것만으로는
+ * 부족하다는 게 밝혀졌다 — 화살표를 정확히 수평(height===0)이나 수직
+ * (width===0)으로 그리면(objects/align/smartGuides.ts의 computeArrowAxisSnap이
+ * 그런 값을 만들어낸다) 이 컴포넌트를 담는 부모 <svg> 자체의 렌더링 폭/높이가
+ * 0이 되는데, SVG 스펙상 "<svg> 자신의 width 또는 height가 0이면 그 엘리먼트
+ * 전체의 렌더링이 꺼진다"(overflow:visible 여부와 무관하게 적용됨) — 그래서
+ * 안의 내용(0.5px짜리 선)이 있어도 화면에 전혀 안 보였다. 부모 <svg>를 그리는
+ * 쪽(ShapeView.tsx/DrawPreview.tsx/PdfOverlayShapeView.tsx/
+ * PdfOverlayShapeDraftLayer.tsx)에서도 같은 상수로 <svg> 자체의 폭/높이를
+ * 최소 0.5로 보정해야 이 스펙 규칙에 걸리지 않는다. */
+export const MIN_VISUAL = 0.5;
 const ROUNDED_CORNER_RADIUS = 12; // 로컬 svg px. width/height에 비례시키지 않는다(스와치 이미지와 동일하게 항상 일정한 둥글기).
 
 /**

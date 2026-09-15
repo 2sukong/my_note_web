@@ -3,7 +3,7 @@ import { useTextDrawDraftStore } from '../store/textDrawDraftStore';
 import { useToolStore } from '../store/toolStore';
 import { strokeColorValueFor } from '../objects/shapes/strokeColors';
 import { computeDiagonal } from '../objects/shapes/shapeGeometry';
-import { ShapeSvgContent } from '../objects/shapes/ShapeSvgContent';
+import { MIN_VISUAL, ShapeSvgContent } from '../objects/shapes/ShapeSvgContent';
 
 /**
  * Phase 6: useDrawShapeTool.ts가 드래그 중 갱신하는 drawDraftStore를 구독해서
@@ -52,14 +52,21 @@ export function DrawPreview() {
 
   const { box, flipY, reverseDirection } = computeDiagonal(shapeDraft.start, shapeDraft.current);
 
+  // 버그 수정(2026-09-15): ShapeView.tsx와 같은 이유로, 드래그 중 화살표가 정확히
+  // 수평/수직이 되는 순간(box.width===0 또는 box.height===0) 이 <svg> 자신의
+  // 폭/높이도 0이 되어 미리보기 전체가 사라진다. 여기도 MIN_VISUAL로 최소값을
+  // 보정한다.
+  const svgWidth = Math.max(box.width, MIN_VISUAL);
+  const svgHeight = Math.max(box.height, MIN_VISUAL);
+
   return (
     <svg
       style={{
         position: 'absolute',
         left: box.x,
         top: box.y,
-        width: box.width,
-        height: box.height,
+        width: svgWidth,
+        height: svgHeight,
         overflow: 'visible',
         opacity: 0.8,
         pointerEvents: 'none',
