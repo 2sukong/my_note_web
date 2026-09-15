@@ -55,3 +55,17 @@ export function isAnnotationBelowAnchor(offsetY: number, scale: number): boolean
   const totalGap = ANNOTATION_TOTAL_GAP_BASE * scale;
   return offsetY > totalGap;
 }
+
+/**
+ * 요구사항(2026-09-15, 화살표 키로 객체 이동): 키보드 위/아래 화살표로 주석을 옮길 때
+ * 쓰는 "아래" 상태 값(canvas/interaction/useArrowKeyNudge.ts). 위 isAnnotationBelowAnchor는
+ * offsetY > totalGap(=ANNOTATION_TOTAL_GAP_BASE*scale)인지만 비교하고, TextObjectView.tsx/
+ * AnnotationBubble.tsx 어디에서도 offsetY의 정확한 크기 자체는 위치 계산에 쓰이지
+ * 않는다(항상 isBelow라는 이진 판정 결과만 쓴다 — 위 두 함수 문서 주석 참고). 그래서
+ * 드래그가 만드는 "정확한" 아래 기본값(totalGap*ANNOTATION_OFFSET_Y_BELOW_MULTIPLIER,
+ * scale에 비례)과 다르더라도, scale이 아무리 커도(폰트 크기를 극단적으로 키워도) 절대
+ * 넘지 못할 만큼만 충분히 크면 레이아웃 판정에는 전혀 차이가 없다 — 키보드 훅은 렌더
+ * 중인 fontScale을 알 방법이 없으므로(DOM 측정 없이 store만 다룬다) 이 방식이 훨씬
+ * 간단하다.
+ */
+export const ANNOTATION_OFFSET_Y_BELOW_SENTINEL = 100000;

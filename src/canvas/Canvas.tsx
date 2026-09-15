@@ -10,6 +10,7 @@ import { usePan } from './viewport/usePan';
 import { useTextSelectionTools } from './interaction/useTextSelectionTools';
 import { useImageHighlightTool } from './interaction/useImageHighlightTool';
 import { useObjectDeleteShortcut } from './interaction/useObjectDeleteShortcut';
+import { useArrowKeyNudge } from './interaction/useArrowKeyNudge';
 import { useImagePaste } from './interaction/useImagePaste';
 import { useTextPaste } from './interaction/useTextPaste';
 import { useDrawShapeTool } from './interaction/useDrawShapeTool';
@@ -84,6 +85,7 @@ export function Canvas() {
   useTextSelectionTools(containerRef);
   useImageHighlightTool(containerRef);
   useObjectDeleteShortcut();
+  useArrowKeyNudge();
   // 요구사항(2026-09, 다른 URL의 my_note_web 사이에서도 Ctrl+C/V): useClipboardShortcuts의
   // 전역 'paste' 리스너가 useImagePaste/useTextPaste보다 먼저 등록돼야, 시스템
   // 클립보드에 담긴 우리 앱 서명 데이터를 이 훅이 가장 먼저 가로채 처리하고
