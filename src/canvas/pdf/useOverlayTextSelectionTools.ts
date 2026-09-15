@@ -3,7 +3,12 @@ import type { RefObject } from 'react';
 import { useToolStore } from '../../store/toolStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
-import { captureAnnotationSelection, captureSelectionSegments, clearNativeSelection } from '../../objects/text/selectionCapture';
+import {
+  captureAnnotationSelection,
+  captureSelectionSegments,
+  captureWordAtPoint,
+  clearNativeSelection,
+} from '../../objects/text/selectionCapture';
 
 /**
  * PDF 오버레이 위 형광펜/주석 도구(Phase 6) — canvas/interaction/useTextSelectionTools.ts의
@@ -39,7 +44,7 @@ export function useOverlayTextSelectionTools(
     const el = containerRef.current;
     if (!el || pageWidth <= 0 || pageHeight <= 0) return;
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       const { activeTool, highlightColor, highlightEraserActive, annotationColor, annotationFontFamily, annotationFontSize } =
         useToolStore.getState();
       if (activeTool === 'select' || activeTool === 'text') return;
@@ -78,9 +83,9 @@ export function useOverlayTextSelectionTools(
       }
 
       const segments = captureSelectionSegments();
-      if (segments.length === 0) return;
 
       if (activeTool === 'highlight') {
+        if (segments.length === 0) return;
         if (highlightEraserActive) {
           usePdfOverlayStore.getState().eraseHighlightSegments(segments);
         } else {
@@ -91,9 +96,13 @@ export function useOverlayTextSelectionTools(
       }
 
       if (activeTool === 'annotation') {
-        // 여러 줄에 걸쳐 드래그해도 anchor는 첫 세그먼트 하나로 삼는다(메인 캔버스와
-        // 동일한 관례 — 짧은 메모라는 성격상 여러 줄 앵커는 다루지 않는다).
-        const anchor = segments[0];
+        // 요구사항 변경(2026-09-15, 메인 캔버스 useTextSelectionTools.ts와 동일):
+        // 드래그 selection이 있으면 그걸, 없으면(그냥 클릭) 클릭 좌표 아래 단어를
+        // captureWordAtPoint로 찾아 anchor로 쓴다. 여러 줄에 걸쳐 드래그해도 anchor는
+        // 첫 세그먼트 하나로 삼는다(메인 캔버스와 동일한 관례 — 짧은 메모라는 성격상
+        // 여러 줄 앵커는 다루지 않는다).
+        const anchor = segments[0] ?? captureWordAtPoint(e.clientX, e.clientY);
+        if (!anchor) return;
         const targetObject = usePdfOverlayStore.getState().objects[anchor.objectId];
         if (!targetObject || targetObject.type !== 'text') return;
 

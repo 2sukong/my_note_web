@@ -4,7 +4,12 @@ import { useToolStore } from '../../store/toolStore';
 import { useObjectsStore } from '../../store/objectsStore';
 import { useInteractionStore } from '../../store/interactionStore';
 import { useHighlightDragStore } from '../../store/highlightDragStore';
-import { captureAnnotationSelection, captureSelectionSegments, clearNativeSelection } from '../../objects/text/selectionCapture';
+import {
+  captureAnnotationSelection,
+  captureSelectionSegments,
+  captureWordAtPoint,
+  clearNativeSelection,
+} from '../../objects/text/selectionCapture';
 
 /** 요구사항(형광펜 실시간 드래그): 드래그 중 브라우저 네이티브 파란 선택 음영을
  * 숨기는 CSS 클래스 — Canvas.css에 `.highlight-dragging ::selection`으로 정의됨.
@@ -79,7 +84,7 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
       useHighlightDragStore.getState().setSegments(captureSelectionSegments());
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       if (highlightDragging) stopHighlightDragPreview();
 
       const { activeTool, highlightColor, highlightEraserActive, annotationColor, annotationFontFamily, annotationFontSize } =
@@ -124,9 +129,9 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
       }
 
       const segments = captureSelectionSegments();
-      if (segments.length === 0) return;
 
       if (activeTool === 'highlight') {
+        if (segments.length === 0) return;
         if (highlightEraserActive) {
           useObjectsStore.getState().eraseHighlightSegments(segments);
         } else {
@@ -137,10 +142,16 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
       }
 
       if (activeTool === 'annotation') {
-        // 여러 줄에 걸쳐 드래그해도 anchor는 첫 세그먼트(선택을 시작한 지점) 하나로 삼는다 —
-        // 주석 하나가 여러 줄에 걸쳐 있는 경우는 다루지 않는다(짧은 메모라는 성격상
-        // 그 편이 자연스럽다).
-        const anchor = segments[0];
+        // 요구사항 변경(2026-09-15): 기존엔 드래그로 만든 selection(segments)이 있어야만
+        // 주석을 만들 수 있었다. 이제는 "텍스트를 클릭하면 그 위에 주석이 생성"되어야
+        // 하므로, 드래그 선택이 있으면(정확한 범위를 고르고 싶을 때를 위해 그대로
+        // 남겨둔다) 그걸 anchor로 쓰고, 없으면(=그냥 클릭, collapsed selection)
+        // 클릭 좌표 아래의 단어 하나를 captureWordAtPoint로 찾아 anchor로 쓴다.
+        // 여러 줄에 걸쳐 드래그해도 anchor는 첫 세그먼트(선택을 시작한 지점) 하나로
+        // 삼는다 — 주석 하나가 여러 줄에 걸쳐 있는 경우는 다루지 않는다(짧은 메모라는
+        // 성격상 그 편이 자연스럽다).
+        const anchor = segments[0] ?? captureWordAtPoint(e.clientX, e.clientY);
+        if (!anchor) return;
         const targetObject = useObjectsStore.getState().objects[anchor.objectId];
         if (!targetObject || targetObject.type !== 'text') return;
 
