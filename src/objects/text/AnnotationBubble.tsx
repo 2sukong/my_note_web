@@ -8,7 +8,8 @@ import { useFontStore } from '../../store/fontStore';
 import { highlightBackgroundFor } from './highlightColors';
 import { annotationVisualsFor } from './annotationColors';
 import { DEFAULT_FONT_FAMILY } from './fontOptions';
-import { mergeClientRectsByLine } from './domCaret';
+import { mergeClientRectsByLine, caretPositionFromClientPoint, getCaretOffset, focusLineAt } from './domCaret';
+import { convertArrowTokenAtCursor } from './arrowConvert';
 import {
   ANNOTATION_TOTAL_GAP_BASE,
   snapAnnotationOffsetY,
@@ -351,6 +352,12 @@ export function AnnotationBubble({
 
   const isComposingRef = useRef(false);
   const wasEditingRef = useRef(false);
+  // 버그 수정(요구사항: 더블클릭한 위치에서 바로 수정 가능하게): 더블클릭 시점의
+  // 화면 좌표(clientX/clientY)를 기억해뒀다가, 그 직후 isEditing이 true로 바뀌는
+  // 렌더에서(아래 effect) 그 좌표 아래의 실제 글자 위치로 커서를 옮긴다. 이 값이
+  // 없으면(더블클릭이 아닌 다른 경로로 편집 모드에 들어간 경우 등) 기존처럼 끝으로
+  // 폴백한다.
+  const pendingCaretPointRef = useRef<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startScreen: { x: number; y: number };
@@ -381,12 +388,34 @@ export function AnnotationBubble({
     const el = textElRef.current;
     if (isEditing && !wasEditingRef.current && el) {
       el.focus();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
+      // 버그 수정(요구사항 2번: 항상 끝에서 시작하는 대신 원하는 위치에서 바로 수정):
+      // 더블클릭 좌표가 기억되어 있으면 그 좌표 아래의 실제 글자 위치를 찾아 커서를
+      // 그 자리에 둔다. 좌표가 이미 이 텍스트 노드 범위를 벗어났거나(예: 그 사이
+      // 텍스트가 바뀜) 애초에 좌표가 없으면(더블클릭이 아닌 경로로 편집 진입) 기존과
+      // 동일하게 끝으로 폴백한다.
+      const point = pendingCaretPointRef.current;
+      pendingCaretPointRef.current = null;
+      let placed = false;
+      if (point) {
+        const pos = caretPositionFromClientPoint(point.x, point.y);
+        if (pos && el.contains(pos.node)) {
+          const range = document.createRange();
+          range.setStart(pos.node, pos.offset);
+          range.collapse(true);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+          placed = true;
+        }
+      }
+      if (!placed) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      }
     }
     wasEditingRef.current = isEditing;
   }, [isEditing]);
@@ -473,9 +502,24 @@ export function AnnotationBubble({
   }, [annotation.text, annotation.highlights, annotation.fontFamily, annotation.fontSize, maxWidth, isEditing, fontScale, customFonts]);
 
   // 타이핑 중(매 키 입력) 호출 — store 동기화만 하고 mode/selection은 절대 건드리지 않는다.
+  //
+  // 요구사항 3번: 본문(TextObjectView.tsx의 handleInput)과 동일하게 ->, <-, =>, <=
+  // 를 유니코드 화살표로 자동 변환한다(arrowConvert.ts, 본문과 규칙 공유). 변환이
+  // 일어나면 텍스트 길이가 줄어들므로(2글자→1글자) DOM도 직접 다시 쓰고 커서도
+  // 그만큼 당겨서 다시 놓아야 한다 — 그러지 않으면 다음 렌더에서 store 텍스트만
+  // annotation.text로 동기화되고 화면엔 방금 친 "->"가 그대로 남는다.
   const syncText = (el: HTMLDivElement) => {
     if (isComposingRef.current) return;
-    onTextChange(el.textContent ?? '');
+    let newText = el.textContent ?? '';
+    let cursorIndex = getCaretOffset(el);
+    const arrowResult = convertArrowTokenAtCursor(newText, cursorIndex);
+    if (arrowResult.converted) {
+      newText = arrowResult.text;
+      cursorIndex = arrowResult.cursorIndex;
+      el.textContent = newText;
+      focusLineAt(el, cursorIndex);
+    }
+    onTextChange(newText);
   };
 
   // 편집을 끝낼 때(Enter/Escape/blur)만 호출 — 최종 텍스트를 확정하고 편집 모드를 나간다.
@@ -682,9 +726,16 @@ export function AnnotationBubble({
           // bubbling돼서 "텍스트 객체 전체 편집 모드 진입"까지 같이 발동해버린다
           // (pointerdown에서의 stopPropagation은 별개 이벤트인 dblclick에는 영향이 없다).
           e.stopPropagation();
-          // 위 onClick과 같은 이유: 형광펜 도구로 단어를 더블클릭(네이티브 단어 선택)해서
-          // 칠하려는 것일 수 있으므로, select 도구가 아니면 편집 모드로 들어가지 않는다.
-          if (activeTool !== 'select') return;
+          // 요구사항(주석 도구가 켜져 있어도 기존 주석 편집 가능): 예전엔 select
+          // 도구가 아니면(형광펜/주석 도구 포함) 무조건 편집 진입을 막았다 — 형광펜
+          // 도구로 단어를 더블클릭(네이티브 단어 선택)해서 칠하려는 것일 수 있어서다.
+          // 그 이유는 'highlight' 도구에만 해당하고, 'annotation' 도구로는 이 주석
+          // 자신의 텍스트를 드래그해서 칠할 일이 없으므로(새 주석을 만드는 도구일 뿐)
+          // 막을 이유가 없다 — 'highlight' 도구일 때만 계속 막는다.
+          if (activeTool === 'highlight') return;
+          // 더블클릭 좌표를 기억해둔다 — 편집 모드로 전환된 직후(위 isEditing effect)
+          // 이 좌표 아래의 실제 글자 위치에 커서를 놓기 위함(요구사항 2번).
+          pendingCaretPointRef.current = { x: e.clientX, y: e.clientY };
           onEnterEdit();
         }}
         style={{
