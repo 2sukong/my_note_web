@@ -1,11 +1,29 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useFileTreeStore } from '../../storage/fileTreeStore';
 import { usePdfLibraryStore } from '../../store/pdfLibraryStore';
 import { usePdfViewerStore, consumeSuppressNextAutoClose } from '../../store/pdfViewerStore';
+import { usePdfLibraryDragStore } from './pdfLibraryDragStore';
 import { PdfFileIcon, PlusIcon } from '../../icons/Icons';
 import './PdfLibraryRail.css';
 
 const PDF_ACCEPT = 'application/pdf,.pdf';
+/** 드래그 중인 PDF 항목을 dataTransfer에 담을 때 쓰는 커스텀 MIME 타입.
+ * FileTreePanel.tsx의 DND_MIME과는 다른 값을 써서(값 자체가 아니라 항목 id만
+ * 담으면 되므로 JSON도 필요 없다) File/Page 드래그와 서로 섞이지 않게 한다. */
+const PDF_DND_MIME = 'application/x-my-note-web-pdf-item';
+
+/** 요구사항(2026-09-15): 순서 변경 미리보기 — FileTreePanel.tsx의 DropGapLine과
+ * 완전히 같은 방식(실제로 목록 사이에 끼워 넣는, 높이가 있는 엘리먼트라 다른
+ * 항목들이 진짜로 자리를 비켜준다)이다. 그쪽 컴포넌트가 export돼 있지 않고
+ * PDF Library는 File/Page 트리와 무관한 별개 기능이라 작게 복제해 둔다(같은
+ * 시각적 스타일은 PdfLibraryRail.css의 클래스로 재현). */
+function PdfLibraryDropGapLine() {
+  return (
+    <div className="pdf-library-drop-gap" aria-hidden>
+      <div className="pdf-library-drop-gap-line" />
+    </div>
+  );
+}
 
 /** 이름 변경용 인라인 입력. FileTreePanel.tsx의 InlineNameInput과 같은 관례(Enter/blur
  * 확정, Escape 취소)지만, 그쪽은 파일 트리 전용으로 export돼 있지 않아 그대로 가져다
@@ -80,8 +98,14 @@ export function PdfLibraryRail() {
   const importPdf = usePdfLibraryStore((s) => s.importPdf);
   const renamePdf = usePdfLibraryStore((s) => s.renamePdf);
   const removePdf = usePdfLibraryStore((s) => s.removePdf);
+  const reorderPdf = usePdfLibraryStore((s) => s.reorderPdf);
   const openPdfId = usePdfViewerStore((s) => s.openPdfId);
   const openViewer = usePdfViewerStore((s) => s.openViewer);
+  // 요구사항(2026-09-15, 라이브러리 드래그 순서 변경): 이 목록도 File/Page 트리와
+  // 같은 "자리를 비켜주는" 드롭 미리보기를 쓴다 — 실제 목표는 fileTreeDragStore와
+  // 같은 이유로 전역 store 하나에만 쓰고, 여기서는 그 값을 구독만 한다.
+  const draggingId = usePdfLibraryDragStore((s) => s.draggingId);
+  const dropBeforeId = usePdfLibraryDragStore((s) => s.dropBeforeId);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -90,7 +114,9 @@ export function PdfLibraryRail() {
   const [hoverOpen, setHoverOpen] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
-  const flyoutOpen = hoverOpen || renamingId !== null || contextMenu !== null;
+  // 드래그 중에는 마우스가 아이콘/플라이아웃 밖(다른 항목 위 등)으로 나가도 플라이아웃이
+  // 사라지면 안 된다 — renamingId/contextMenu와 같은 이유로 OR에 추가한다.
+  const flyoutOpen = hoverOpen || renamingId !== null || contextMenu !== null || draggingId !== null;
 
   // Page를 전환하면 그 Page에 속한 PDF 목록을 새로 불러온다. CanvasSearch.tsx가
   // currentPageId 변경 시 검색 패널을 닫는 것과 같은 이유로, 다른 Page의 PDF를 보여주던
@@ -189,35 +215,86 @@ export function PdfLibraryRail() {
             {entries.length > 0 && (
               <>
                 <div className="pdf-library-flyout-divider" />
-                {entries.map((entry) =>
-                  renamingId === entry.id ? (
-                    <div key={entry.id} className="pdf-library-flyout-rename-wrap">
-                      <RenameInput
-                        initial={entry.name}
-                        onCommit={(name) => {
-                          setRenamingId(null);
-                          if (name !== entry.name) void renamePdf(entry.id, name);
-                        }}
-                        onCancel={() => setRenamingId(null)}
-                      />
-                    </div>
-                  ) : (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      className={entry.id === openPdfId ? 'pdf-library-flyout-item is-open' : 'pdf-library-flyout-item'}
-                      onClick={() => openViewer(entry.id, entry.lastViewedPageIndex ?? 0)}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setContextMenu({ id: entry.id, x: e.clientX, y: e.clientY });
-                      }}
-                      title={entry.name}
-                    >
-                      <PdfFileIcon size={13} />
-                      <span className="pdf-library-flyout-item-name">{entry.name}</span>
-                    </button>
-                  ),
-                )}
+                <div
+                  className="pdf-library-flyout-list"
+                  onDragOver={(e) => {
+                    if (!e.dataTransfer.types.includes(PDF_DND_MIME)) return;
+                    e.preventDefault();
+                    // 이 핸들러는 아래 각 항목이 stopPropagation()하지 않은 경우에만
+                    // 실행된다 — 즉 어떤 특정 항목 위도 아닌 "빈 공간"(목록 맨 끝
+                    // 아래) 위에 있다는 뜻이므로, FileTreePanel.tsx의 목록 레벨
+                    // onDragOver와 같은 이유로 "맨 끝"으로 해석한다.
+                    if (usePdfLibraryDragStore.getState().draggingId) {
+                      usePdfLibraryDragStore.getState().setDropTarget(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const draggedId = e.dataTransfer.getData(PDF_DND_MIME);
+                    const target = usePdfLibraryDragStore.getState().dropBeforeId;
+                    if (draggedId && target !== undefined) {
+                      void reorderPdf(draggedId, target);
+                    }
+                    usePdfLibraryDragStore.getState().endDrag();
+                  }}
+                >
+                  {entries.map((entry, index) => (
+                    <Fragment key={entry.id}>
+                      {dropBeforeId === entry.id && <PdfLibraryDropGapLine />}
+                      {renamingId === entry.id ? (
+                        <div className="pdf-library-flyout-rename-wrap">
+                          <RenameInput
+                            initial={entry.name}
+                            onCommit={(name) => {
+                              setRenamingId(null);
+                              if (name !== entry.name) void renamePdf(entry.id, name);
+                            }}
+                            onCancel={() => setRenamingId(null)}
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className={entry.id === openPdfId ? 'pdf-library-flyout-item is-open' : 'pdf-library-flyout-item'}
+                          draggable
+                          onDragStart={(e) => {
+                            usePdfLibraryDragStore.getState().startDrag(entry.id);
+                            e.dataTransfer.setData(PDF_DND_MIME, entry.id);
+                            e.dataTransfer.effectAllowed = 'move';
+                          }}
+                          onDragEnd={() => usePdfLibraryDragStore.getState().endDrag()}
+                          onDragOver={(e) => {
+                            const drag = usePdfLibraryDragStore.getState();
+                            if (!drag.draggingId || !e.dataTransfer.types.includes(PDF_DND_MIME)) return;
+                            e.preventDefault();
+                            // 요구사항(다른 항목 겹칠 시 목표를 덮어쓰지 않기): FileTreePanel의
+                            // 행 onDragOver와 같은 이유로, 판정을 이 항목에서 끝내고 바깥
+                            // (목록 컨테이너)으로 더는 안 번지게 한다.
+                            e.stopPropagation();
+                            if (drag.draggingId === entry.id) return; // 자기 자신 위에서는 갱신 안 함.
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            if (e.clientY < rect.top + rect.height / 2) {
+                              drag.setDropTarget(entry.id);
+                            } else {
+                              const next = entries[index + 1];
+                              drag.setDropTarget(next ? next.id : null);
+                            }
+                          }}
+                          onClick={() => openViewer(entry.id, entry.lastViewedPageIndex ?? 0)}
+                          onContextMenu={(e) => {
+                            e.preventDefault();
+                            setContextMenu({ id: entry.id, x: e.clientX, y: e.clientY });
+                          }}
+                          title={entry.name}
+                        >
+                          <PdfFileIcon size={13} />
+                          <span className="pdf-library-flyout-item-name">{entry.name}</span>
+                        </button>
+                      )}
+                    </Fragment>
+                  ))}
+                  {draggingId && dropBeforeId === null && <PdfLibraryDropGapLine />}
+                </div>
               </>
             )}
           </div>

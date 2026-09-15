@@ -36,6 +36,15 @@ export interface PdfLibraryRecord {
   /** Viewer를 다시 열었을 때 이 페이지로 복원한다(수업 진도 확인 용도). */
   lastViewedPageIndex?: number;
   /**
+   * 요구사항(2026-09-15, 라이브러리 드래그 순서 변경): 같은 Page 안에서 이 PDF가
+   * 목록의 몇 번째에 오는지(작을수록 앞). 낮은 정수를 연속으로 재부여하는 방식이라
+   * (store/pdfLibraryStore.ts § reorderPdf) 값 자체에 의미는 없고 상대적 순서만
+   * 중요하다. 이 필드가 생기기 전에 저장된 기존 레코드에는 없을 수 있어 optional —
+   * pdfLibraryStore.ts의 loadForPage가 없는 값을 만나면 createdAt 기준으로 한 번
+   * 채워 넣고 그 결과를 다시 저장한다(이후로는 항상 존재).
+   */
+  order?: number;
+  /**
    * 원본 PDF 바이트. 영구 보존한다(v3 §1-4) — 페이지 래스터는 전부 저장하지 않고
    * 이 원본에서 그때그때 다시 렌더링하는 것이 기본 전략이라, 이 필드가 없으면 페이지를
    * 다시 볼 수 없게 된다. Blob이 아니라 ArrayBuffer로 저장한다(idb의 구조화 복제 저장에는

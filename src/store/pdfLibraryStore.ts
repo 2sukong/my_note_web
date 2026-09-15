@@ -45,6 +45,11 @@ interface PdfLibraryState {
   renamePdf: (id: string, name: string) => Promise<void>;
   removePdf: (id: string) => Promise<void>;
   setLastViewedPageIndex: (id: string, pageIndex: number) => Promise<void>;
+  /** 요구사항(2026-09-15, 라이브러리 드래그 순서 변경): id를 beforeId 바로 앞으로
+   * 옮긴다 — beforeId가 null이면 목록의 맨 끝으로. FileTreePanel의 moveFile/movePage와
+   * 같은 관례(fileTreeDragStore.ts 참고)로, 실제 드롭 시점에 PdfLibraryRail.tsx가
+   * pdfLibraryDragStore의 마지막 드롭 타깃을 그대로 넘겨 호출한다. */
+  reorderPdf: (id: string, beforeId: string | null) => Promise<void>;
 }
 
 /** loadForPage가 비동기로 기다리는 동안 사용자가 이미 다른 Page로 넘어갔을 수 있다 —
@@ -62,8 +67,24 @@ export const usePdfLibraryStore = create<PdfLibraryState>((set, get) => ({
   loadForPage: async (pageId) => {
     const token = ++loadRequestToken;
     set({ isLoading: true });
-    const entries = await getLibraryRecordsForPage(pageId);
+    const fetched = await getLibraryRecordsForPage(pageId);
     if (token !== loadRequestToken) return; // 그 사이 다른 Page로 전환됨 — 이 결과는 버린다
+
+    // 요구사항(2026-09-15, 라이브러리 드래그 순서 변경): order 필드가 아직 없는(이
+    // 기능 이전에 저장된) 레코드가 하나라도 있으면, 기존에 실제로 보이던 순서
+    // (createdAt 오름차순 — getLibraryRecordsForPage 이전의 사실상 표시 순서)를
+    // 기준으로 0부터 순서를 매겨 한 번 채워 넣고 그대로 영구 저장한다. 다음부터는
+    // 이 분기를 다시 타지 않는다.
+    const needsMigration = fetched.some((e) => e.order === undefined);
+    let entries: PdfLibraryRecord[];
+    if (needsMigration) {
+      const byCreatedAt = [...fetched].sort((a, b) => a.createdAt - b.createdAt);
+      entries = byCreatedAt.map((e, index) => ({ ...e, order: index }));
+      await Promise.all(entries.map((e) => putLibraryRecord(e)));
+    } else {
+      entries = [...fetched].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    }
+    if (token !== loadRequestToken) return; // 마이그레이션 저장을 기다리는 동안에도 또 확인
     set({ entries, loadedPageId: pageId, isLoading: false });
   },
 
@@ -73,6 +94,9 @@ export const usePdfLibraryStore = create<PdfLibraryState>((set, get) => ({
     // 쓴다(아래 openPdfDocument에 넘기는 것과 저장하는 것을 같은 참조로 공유하지 않음).
     const doc = await openPdfDocument(sourceBytes.slice(0));
     const now = Date.now();
+    // 새로 가져온 PDF는 항상 지금 보이는 목록의 맨 끝에 붙는다(순서 마이그레이션이
+    // 이미 0부터 연속으로 매겨두므로 현재 entries.length가 곧 다음 순서 값).
+    const currentEntries = get().loadedPageId === pageId ? get().entries : [];
     const record: PdfLibraryRecord = {
       id: crypto.randomUUID(),
       pageId,
@@ -80,6 +104,7 @@ export const usePdfLibraryStore = create<PdfLibraryState>((set, get) => ({
       pageCount: doc.numPages,
       createdAt: now,
       updatedAt: now,
+      order: currentEntries.length,
       sourceBytes,
     };
     await putLibraryRecord(record);
@@ -123,6 +148,27 @@ export const usePdfLibraryStore = create<PdfLibraryState>((set, get) => ({
     const updated: PdfLibraryRecord = { ...existing, lastViewedPageIndex: pageIndex };
     await putLibraryRecord(updated);
     set({ entries: get().entries.map((e) => (e.id === id ? updated : e)) });
+  },
+
+  reorderPdf: async (id, beforeId) => {
+    const current = get().entries;
+    const dragged = current.find((e) => e.id === id);
+    if (!dragged) return;
+    const without = current.filter((e) => e.id !== id);
+    const insertAt = beforeId === null ? without.length : without.findIndex((e) => e.id === beforeId);
+    const targetIndex = insertAt === -1 ? without.length : insertAt;
+    const next = [...without.slice(0, targetIndex), dragged, ...without.slice(targetIndex)];
+    // 값이 실제로 바뀌지 않았으면(제자리로 다시 놓은 경우) 아무 것도 안 한다 —
+    // setLastViewedPageIndex와 같은 이유로, 불필요한 재저장/참조 변경을 피한다.
+    const unchanged = next.length === current.length && next.every((e, i) => e.id === current[i].id);
+    if (unchanged) return;
+    const reordered = next.map((e, index) => (e.order === index ? e : { ...e, order: index }));
+    set({ entries: reordered });
+    await Promise.all(
+      reordered
+        .filter((e, index) => current.find((c) => c.id === e.id)?.order !== index)
+        .map((e) => putLibraryRecord(e)),
+    );
   },
 }));
 
