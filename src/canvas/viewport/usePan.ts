@@ -23,6 +23,19 @@ export function usePan(containerRef: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space' && !e.repeat) {
+        // 버그 수정(2026-09-15, "PDF가 열린 상태에서 Space+마우스 이동으로 화면을
+        // 옮기면 PDF의 이전/다음 페이지 버튼이 같이 눌림"): 브라우저 기본 동작상
+        // 포커스가 <button>에 남아있는 상태에서 Space를 누르면 그 버튼을 클릭한 것과
+        // 동일하게 처리된다. PDF 뷰어의 이전/다음 페이지 화살표(다른 툴바 버튼도
+        // 마찬가지)를 한 번 클릭하면 포커스가 그 버튼에 남는데, 그 직후 화면 이동을
+        // 위해 Space를 누르면 이 기본 동작이 함께 발동해 의도치 않게 페이지가
+        // 넘어갔다. 포커스가 버튼일 때만 Space의 기본 동작(클릭 트리거)을 막고
+        // 포커스를 치운다 — 텍스트 편집 중(contentEditable)에는 활성 엘리먼트가
+        // 버튼이 아니므로 이 분기에 걸리지 않아 스페이스 문자 입력에는 영향 없다.
+        if (document.activeElement instanceof HTMLButtonElement) {
+          e.preventDefault();
+          document.activeElement.blur();
+        }
         setSpacePressed(true);
       }
     };
