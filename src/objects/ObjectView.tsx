@@ -139,7 +139,16 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
     setTool('select');
   };
 
+  // 버그 수정(2026-09-15, 링크 생성 좌클릭→우클릭 변경): canvas/interaction/
+  // useLinkTool.ts가 이제 우클릭으로 링크 anchor를 찍는다. 그 훅은 containerRef(캔버스
+  // 루트)에 직접 addEventListener한 네이티브 리스너라 React의 합성 dispatch보다
+  // 항상 먼저 실행되므로(그 파일 주석 참고) 이 함수를 막지 않아도 링크 도구 자체는
+  // 이미 정상 동작한다 — 다만 이 함수를 그대로 두면 "링크 anchor 지정"과 "객체 우클릭
+  // 메뉴 열기"가 동시에 일어난다. activeTool==='link'일 때는 이 객체 컨텍스트 메뉴를
+  // 열지 않고 그대로 리턴해서(preventDefault/stopPropagation도 하지 않음) 이벤트가
+  // useLinkTool.ts가 이미 처리한 대로만 흘러가게 한다.
   const handleContextMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    if (useToolStore.getState().activeTool === 'link') return;
     e.preventDefault();
     e.stopPropagation();
     const { selectedIds, select } = useInteractionStore.getState();
