@@ -42,6 +42,62 @@ function siblingIdAfter(siblings: string[], targetId: string): string | undefine
   return idx === -1 ? undefined : siblings[idx + 1];
 }
 
+/** 요구사항(2026-09-15, 드래그 고스트 그라데이션 제거): 브라우저가 기본으로 만드는
+ * 드래그 미리보기 이미지는 OS/브라우저마다 반투명 처리에 그림자·블러가 섞여
+ * 카드 테두리가 흐릿하고 형태가 불분명하게 보인다(사용자 피드백). 대신 실제 행을
+ * 그대로 복제해서 균일한 opacity만 적용한(그림자/블러 없음) 이미지를 직접
+ * setDragImage로 지정한다 — 투명도는 유지하되 테두리는 항상 또렷하다.
+ *
+ * 요구사항(2026-09-15, 후속): 두 가지 버그가 더 있었다.
+ * 1) 글자 크기가 커 보임 — 이 복제본은 document.body에 바로 붙기 때문에, 실제
+ *    글자 크기(13px)를 정의하는 조상인 .file-tree-panel(font-size: var(--font-size-md))
+ *    에서 물려받던 상속이 끊겨 브라우저 기본값(16px)으로 튀었다. 행 자체는
+ *    font-size를 직접 정의하지 않고 조상으로부터 상속만 받는 구조라, 복제 시점에
+ *    실제 계산된 값(computed style)을 인라인으로 그대로 박아 넣어 고정한다.
+ * 2) 배경이 안 보임 — 배경을 흰색(--color-surface)으로 쓰고 있어서, 흰색 캔버스
+ *    위에서는 opacity를 줘도 거의 안 보였다(사용자 피드백: "E9E9E9 배경색이 안
+ *    보임" — 원래 의도한 색은 실제 사이드바의 .is-drag-source와 같은 톤인
+ *    --color-fill-hover(#E9E9E9)였는데 여기 적용이 안 돼 있었다). 사이드바 안에서
+ *    보이는 드래그 소스 표시와 같은 색으로 바꾸고, 또렷한 실선 테두리를 추가해
+ *    카드 형태(노션 참고 스크린샷처럼)가 항상 분명히 보이도록 한다 — 배경/테두리
+ *    모두 단일 색(그라데이션 없음)이고 opacity는 엘리먼트 전체에 한 번만 적용되므로
+ *    내부가 균일하게 유지된다. */
+function setPlainDragImage(e: React.DragEvent<HTMLElement>) {
+  const source = e.currentTarget;
+  const rect = source.getBoundingClientRect();
+  const computed = window.getComputedStyle(source);
+  const clone = source.cloneNode(true) as HTMLElement;
+  clone.style.position = 'fixed';
+  clone.style.top = '-9999px';
+  clone.style.left = '-9999px';
+  clone.style.width = `${rect.width}px`;
+  clone.style.height = `${rect.height}px`;
+  clone.style.margin = '0';
+  clone.style.boxSizing = 'border-box';
+  // (1) 글자 크기·서체가 조상 상속에 의존하던 걸 인라인 값으로 고정.
+  clone.style.fontFamily = computed.fontFamily;
+  clone.style.fontSize = computed.fontSize;
+  clone.style.fontWeight = computed.fontWeight;
+  clone.style.lineHeight = computed.lineHeight;
+  clone.style.letterSpacing = computed.letterSpacing;
+  clone.style.color = computed.color;
+  // (2) 흰 배경 대신 실제 드래그 소스와 같은 톤 + 또렷한 테두리.
+  clone.style.background = 'var(--color-fill-hover)';
+  clone.style.border = '1px solid var(--color-border-strong)';
+  clone.style.borderRadius = computed.borderRadius;
+  clone.style.opacity = '0.92';
+  clone.style.boxShadow = 'none';
+  clone.style.filter = 'none';
+  clone.style.pointerEvents = 'none';
+  document.body.appendChild(clone);
+  e.dataTransfer.setDragImage(clone, e.clientX - rect.left, e.clientY - rect.top);
+  // 브라우저가 드래그 이미지를 캡처하는 건 이 이벤트 핸들러가 끝난 직후이므로,
+  // 다음 프레임에 지워도 미리보기 캡처에는 영향이 없다.
+  requestAnimationFrame(() => {
+    clone.parentNode?.removeChild(clone);
+  });
+}
+
 /**
  * 요구사항(2026-09-14): 특정 형제 목록(group) 안에서 지금 드래그 중인 드롭 타깃이
  * "이 id 바로 앞"이거나 "이 목록의 맨 끝"인지를 판정한다 — File 목록은 groupId로
@@ -191,7 +247,7 @@ function ContextMenu() {
   );
 }
 
-function PageRow({ id, depth }: { id: string; depth: number }) {
+function PageRow({ id, depth, isLastPage }: { id: string; depth: number; isLastPage: boolean }) {
   const page = useFileTreeStore((s) => s.pages[id]);
   const isActive = useFileTreeStore((s) => s.currentPageId === id);
   // 요구사항(휴지통): 부모(FileNode)가 이미 pageIds를 필터링해서 넘기지만, 방어적으로
@@ -200,6 +256,12 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
   const renamingId = useFileTreeUiStore((s) => s.renamingId);
   const stopRenaming = useFileTreeUiStore((s) => s.stopRenaming);
   const openContextMenu = useFileTreeUiStore((s) => s.openContextMenu);
+  // 요구사항(2026-09-15, 드래그 하이라이트를 목록 전체 → 드래그 중인 항목 자신으로):
+  // 이 Page 자신이 지금 드래그되고 있는 원본이면 진하게 표시한다(아래 파일 카드 쪽
+  // "넣으려는 공간" 강조보다 진한 톤 — CSS의 is-drag-source/is-drop-target 참고).
+  const draggingKind = useFileTreeDragStore((s) => s.draggingKind);
+  const draggingId = useFileTreeDragStore((s) => s.draggingId);
+  const isDragSource = draggingKind === 'page' && draggingId === id;
 
   // 요구사항(휴지통): 부모(FileNode)가 이미 pageIds를 필터링해서 넘기지만, 방어적으로
   // 한 번 더 확인한다 — 트래시된 Page는 어떤 경로로도 트리에 보이면 안 된다.
@@ -208,36 +270,62 @@ function PageRow({ id, depth }: { id: string; depth: number }) {
 
   return (
     <div
-      className={`file-tree-row file-tree-page-row${isActive ? ' is-active' : ''}`}
+      className={`file-tree-row file-tree-page-row${isActive ? ' is-active' : ''}${isDragSource ? ' is-drag-source' : ''}`}
       style={{ paddingLeft: 16 + depth * 16 }}
       draggable={!isRenaming}
       onDragStart={(e) => {
         useFileTreeDragStore.getState().startDrag('page', id);
         e.dataTransfer.setData(DND_MIME, JSON.stringify({ kind: 'page', id } satisfies DragPayload));
         e.dataTransfer.effectAllowed = 'move';
+        setPlainDragImage(e);
       }}
       onDragEnd={() => {
         useFileTreeDragStore.getState().endDrag();
       }}
       onDragOver={(e) => {
-        // 페이지는 페이지끼리만 순서를 바꿀 수 있다(파일과 섞인 순서 자체가 없음) —
-        // 파일이 드래그 중이면 이 행 위/아래에 끼워 넣을 수 없다는 뜻으로 아예 무시한다.
         const drag = useFileTreeDragStore.getState();
-        if (drag.draggingKind !== 'page' || !e.dataTransfer.types.includes(DND_MIME)) return;
-        e.preventDefault();
-        // 요구사항(다른 행 클로버시 목표를 덮어쓰지 않기): 순서 판정은 이 행에서 끝내고
-        // 바깥(부모 목록/전체 리스트)으로 더는 안 번지게 한다 — 안 그러면 이 dragover
-        // 직후에 바깥 컨테이너의 dragover가 다시 실행되며 방금 정한 목표를 덮어쓴다.
-        e.stopPropagation();
-        if (drag.draggingId === id) return; // 자기 자신 위에서는 갱신하지 않는다(그대로 두면 no-op).
-        const rect = e.currentTarget.getBoundingClientRect();
-        if (e.clientY < rect.top + rect.height / 2) {
-          drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: id });
-        } else {
-          const siblings = useFileTreeStore.getState().files[page.fileId]?.pageIds ?? [];
-          const nextId = siblingIdAfter(siblings, id);
-          drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: nextId ?? null });
+        if (!e.dataTransfer.types.includes(DND_MIME)) return;
+        if (drag.draggingKind === 'page') {
+          e.preventDefault();
+          // 요구사항(다른 행 클로버시 목표를 덮어쓰지 않기): 순서 판정은 이 행에서 끝내고
+          // 바깥(부모 목록/전체 리스트)으로 더는 안 번지게 한다 — 안 그러면 이 dragover
+          // 직후에 바깥 컨테이너의 dragover가 다시 실행되며 방금 정한 목표를 덮어쓴다.
+          e.stopPropagation();
+          if (drag.draggingId === id) return; // 자기 자신 위에서는 갱신하지 않는다(그대로 두면 no-op).
+          const rect = e.currentTarget.getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) {
+            drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: id });
+          } else {
+            const siblings = useFileTreeStore.getState().files[page.fileId]?.pageIds ?? [];
+            const nextId = siblingIdAfter(siblings, id);
+            drag.setDropTarget({ kind: 'page-order', fileId: page.fileId, beforeId: nextId ?? null });
+          }
+          return;
         }
+        // 요구사항(2026-09-15, "폴더 끝까지 내려가야만 형제 순서 변경" 버그 수정):
+        // File을 드래그하는 중에는 Page 행이 순서를 받아줄 수 없다(파일과 페이지는
+        // 다른 목록이라서). 예전엔 여기서 아무 것도 안 하고 return만 해서(preventDefault
+        // 조차 안 함) 이벤트가 그대로 바깥으로 새어나갔는데, 펼쳐진 폴더 안의 Page
+        // 행들은 부모 컨테이너에 stopPropagation하는 곳이 없어서 결국 최상위
+        // `.file-tree-list`까지 버블링되고, 거기서 "File 드래그 중 = 무조건 목록
+        // 맨 끝"으로 즉시 덮어써버렸다 — 그래서 펼쳐진 폴더 안 아무 Page 위에만
+        // 올라가도 그 폴더 바로 다음으로 순서가 바뀌는 버그가 났다.
+        // 고침: 이 폴더의 "마지막으로 보이는 Page"(isLastPage)의 아래쪽 절반 위에
+        // 있을 때만 "이 폴더 다음으로" 판정하고, 그 전까지(폴더 내부 다른 Page 위)는
+        // preventDefault+stopPropagation만 해서 드롭 자체는 허용하되 목표는 새로
+        // 갱신하지 않는다(sticky — 마지막으로 유효했던 목표가 그대로 유지된다).
+        e.preventDefault();
+        e.stopPropagation();
+        if (!isLastPage) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (e.clientY - rect.top < rect.height / 2) return;
+        const containingFile = useFileTreeStore.getState().files[page.fileId];
+        if (!containingFile) return;
+        const siblings = containingFile.parentId
+          ? (useFileTreeStore.getState().files[containingFile.parentId]?.childFileIds ?? [])
+          : useFileTreeStore.getState().rootFileIds;
+        const nextId = siblingIdAfter(siblings, page.fileId);
+        drag.setDropTarget({ kind: 'file-order', parentId: containingFile.parentId, beforeId: nextId ?? null });
       }}
       onClick={() => {
         if (!isRenaming) void openPage(id);
@@ -296,6 +384,12 @@ function FileNode({
   const dropTarget = useFileTreeDragStore((s) => s.dropTarget);
   const isIntoTarget =
     (dropTarget?.kind === 'into-file' || dropTarget?.kind === 'into-file-pages') && dropTarget.fileId === id;
+  // 요구사항(2026-09-15, 드래그 하이라이트를 목록 전체 → 드래그 중인 항목 자신으로):
+  // 이 File 자신이 지금 드래그되고 있는 원본이면 진하게 표시한다 — "넣으려는 공간"
+  // (isIntoTarget, 옅은 톤)보다 진한 톤으로 구분한다(CSS의 is-drag-source 참고).
+  const draggingKind = useFileTreeDragStore((s) => s.draggingKind);
+  const draggingId = useFileTreeDragStore((s) => s.draggingId);
+  const isDragSource = draggingKind === 'file' && draggingId === id;
   // 요구사항(자리 예약 미리보기, 2026-09-14): 이 File의 자식 File 목록/Page 목록
   // 각각에서 지금 드롭하면 어디에 끼워지는지를 구해서, 그 자리에 DropGapLine을
   // 실제로 끼워 넣는다(다른 항목들이 진짜로 밀려나 자리를 만든다). rules-of-hooks
@@ -331,13 +425,14 @@ function FileNode({
   return (
     <div>
       <div
-        className={`file-tree-row file-tree-file-row${isIntoTarget ? ' is-drop-target' : ''}`}
+        className={`file-tree-row file-tree-file-row${isIntoTarget ? ' is-drop-target' : ''}${isDragSource ? ' is-drag-source' : ''}`}
         style={{ paddingLeft: depth * 16 }}
         draggable={!isRenaming}
         onDragStart={(e) => {
           useFileTreeDragStore.getState().startDrag('file', id);
           e.dataTransfer.setData(DND_MIME, JSON.stringify({ kind: 'file', id } satisfies DragPayload));
           e.dataTransfer.effectAllowed = 'move';
+          setPlainDragImage(e);
         }}
         onDragEnd={() => {
           useFileTreeDragStore.getState().endDrag();
@@ -353,13 +448,16 @@ function FileNode({
             return;
           }
           if (drag.draggingId === id) return; // 자기 자신 위에서는 갱신하지 않는다.
-          // 요구사항(2026-09-14, 최상단/최하단 드롭 영역 확장): 같은 목록의 첫/마지막
-          // File일 때는 위/아래 판정 존을 25%→50%로 넓혀서, 그 항목의 절반 어디에
-          // 놓아도 "그 위로"/"그 아래로"가 인식되게 한다. 단, 이 목록에 형제가 이
-          // File 하나뿐이면(첫째이자 막내) 넓히지 않는다 — 그러면 "폴더 안으로" 존이
-          // 완전히 사라져서 그 폴더 안에 아무것도 넣을 수 없게 되기 때문이다.
+          // 요구사항(2026-09-14, 최상단/최하단 드롭 영역 확장; 2026-09-15, 위쪽
+          // 영역 추가 확장): 같은 목록의 첫/마지막 File일 때는 위/아래 판정 존을
+          // 넓혀서, 그 항목의 대부분 어디에 놓아도 "그 위로"/"그 아래로"가
+          // 인식되게 한다. 위쪽은 0.5로는 아직도 좁다는 피드백으로 0.7까지 추가로
+          // 넓혔다(맨 위로 옮기려 조금만 올려도 계속 금지 커서가 뜨는 문제 완화).
+          // 단, 이 목록에 형제가 이 File 하나뿐이면(첫째이자 막내) 넓히지 않는다 —
+          // 그러면 "폴더 안으로" 존이 완전히 사라져서 그 폴더 안에 아무것도 넣을 수
+          // 없게 되기 때문이다.
           const onlyChild = isFirstSibling && isLastSibling;
-          const topThreshold = isFirstSibling && !onlyChild ? 0.5 : 0.25;
+          const topThreshold = isFirstSibling && !onlyChild ? 0.7 : 0.25;
           const bottomThreshold = isLastSibling && !onlyChild ? 0.5 : 0.75;
           const rect = e.currentTarget.getBoundingClientRect();
           const ratio = (e.clientY - rect.top) / rect.height;
@@ -416,10 +514,10 @@ function FileNode({
             </Fragment>
           ))}
           {childFileGap.isAtEnd && <DropGapLine />}
-          {visiblePageIds.map((pageId) => (
+          {visiblePageIds.map((pageId, index) => (
             <Fragment key={pageId}>
               {pageGap.isBefore(pageId) && <DropGapLine />}
-              <PageRow id={pageId} depth={depth + 1} />
+              <PageRow id={pageId} depth={depth + 1} isLastPage={index === visiblePageIds.length - 1} />
             </Fragment>
           ))}
           {pageGap.isAtEnd && <DropGapLine />}
@@ -443,11 +541,6 @@ export function FileTreePanel() {
   const setSearchQuery = useFileTreeUiStore((s) => s.setSearchQuery);
   const isTrashOpen = useFileTreeUiStore((s) => s.isTrashOpen);
   const openTrash = useFileTreeUiStore((s) => s.openTrash);
-  // 요구사항(2026-09-14): 예전에는 이 컨테이너 자신의 dragover에서만 로컬 state를
-  // 켰다(자식 행들이 이벤트를 막지 않았기 때문에 사실상 트리 전체에서 드래그 중이면
-  // 항상 켜졌다). 이제 자식 행들이 stopPropagation()으로 더 구체적인 타깃을
-  // 확정하므로, 배경 강조는 "드래그가 진행 중인지"로 단순화한다.
-  const draggingKind = useFileTreeDragStore((s) => s.draggingKind);
   const rootGap = useDropGapMatcher('file-order', null);
 
   if (isCollapsed) {
@@ -532,7 +625,7 @@ export function FileTreePanel() {
       </div>
 
       <div
-        className={`file-tree-list${draggingKind ? ' is-drop-target' : ''}`}
+        className="file-tree-list"
         onDragOver={(e) => {
           if (!e.dataTransfer.types.includes(DND_MIME)) return;
           e.preventDefault();

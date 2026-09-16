@@ -18,9 +18,9 @@
   color: var(--color-text);
   user-select: none;
   transition: width 0.15s ease;
-  /* 요구사항(드롭 인디케이터 색상/굵기 통일, 2026-09-14): 순서 변경 가로선과 "폴더
-     안으로" 점선 테두리는 서로 다른 모양(실선 vs 점선)으로 의미를 구분하되, 같은
-     드래그앤드롭 신호라는 걸 알 수 있도록 색은 이 변수 하나로 통일한다. */
+  /* 요구사항(드롭 인디케이터 색상 통일, 2026-09-14): 순서 변경 가로선(.file-tree-drop-gap-line)
+     색을 이 변수로 통일. (2026-09-15: "폴더 안으로" 타깃의 점선 테두리는 배경색
+     방식으로 바뀌면서 없어졌다 — 지금은 이 변수를 가로선 하나만 쓴다.) */
   --color-drop-indicator: var(--color-text);
 }
 
@@ -174,10 +174,6 @@
   padding: 4px var(--space-md);
 }
 
-.file-tree-list.is-drop-target {
-  background: var(--color-accent-soft);
-}
-
 .file-tree-row {
   display: flex;
   align-items: center;
@@ -193,9 +189,27 @@
   background: var(--color-surface-hover);
 }
 
+/* 요구사항(2026-09-15, 점선 테두리 → 색상 변경): "폴더 안으로" 드롭 타깃은 이제
+   점선 테두리 대신 배경색만으로 표시한다. 드래그 중인 원본 항목(.is-drag-source,
+   바로 아래)보다 옅은 톤이어야 "어디서 어디로"가 방향성 있게 읽힌다. */
 .file-tree-file-row.is-drop-target {
   background: var(--color-accent-soft);
-  outline: 1.5px dashed var(--color-drop-indicator);
+}
+
+/* 요구사항(2026-09-15): 지금 드래그되고 있는 원본 File/Page 카드 — 목록 전체가
+   아니라 이 카드 하나만 색이 바뀐다. 넣으려는 공간(is-drop-target, --color-accent-soft
+   = #F0F0F0)보다 진한 톤(--color-fill-hover = #E9E9E9)을 써서 "원본이 더 진하고
+   대상이 더 옅다"는 방향성을 준다 — 둘 다 기존 my_note_web 톤(index.css 팔레트)만
+   재사용, 새 색상 도입 없음.
+   요구사항(2026-09-15, 후속 버그 수정): 현재 열려 있는(is-active) Page를 드래그할
+   때 이 배경이 전혀 안 보인다는 피드백 — `.file-tree-page-row.is-active`도
+   background를 쓰는데 동일한 detail(클래스 2개, 0,2,0)이라 CSS 파일에서 더
+   나중에 나오는 is-active 규칙이 캐스케이드상 이겨버렸다. `.file-tree-row`를
+   셀렉터에 한 번 더 넣어 detail을 (0,3,0)으로 올려서 is-active와 동시에 있어도
+   항상 이 쪽이 이기도록 고쳤다. */
+.file-tree-row.file-tree-file-row.is-drag-source,
+.file-tree-row.file-tree-page-row.is-drag-source {
+  background: var(--color-fill-hover);
 }
 
 /* 요구사항(자리 예약 미리보기 + 가로선 디자인, 2026-09-14): 순서 변경(reorder) 시
@@ -215,7 +229,9 @@
 
 .file-tree-drop-gap-line {
   width: 100%;
-  height: 2px;
+  /* 요구사항(2026-09-15): 순서 이동 시 나오는 실선 두께를 가장 얇은 값(1px)으로
+     통일 — 이전엔 2px였다. */
+  height: 1px;
   background: var(--color-drop-indicator);
 }
 
