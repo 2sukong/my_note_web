@@ -77,7 +77,17 @@ function LinkMarkerDot({
   onSelect: () => void;
   onReposition: (anchor: LinkAnchor) => void;
 }) {
+  // 버그 수정(2026-09-16, "드래그로 재배치할 때 클릭한 위치와 다른 곳으로 이동"):
+  // 마커가 11px로 작아서 정확히 중심을 클릭하지 못하고 가장자리를 잡는 경우가
+  // 흔한데, 예전엔 드래그 중 렌더 위치를 "지금 커서의 world 좌표"로 그대로
+  // 덮어썼다 — 그러면 DRAG_THRESHOLD_PX(4px)를 넘는 순간 마커가 커서 바로 밑으로
+  // 순간이동(잡았던 지점과 마커 중심 사이의 오차만큼 튐)해버렸다. 이제는 pointerdown
+  // 시점의 world 좌표를 기준으로 "커서가 그동안 이동한 만큼"(delta)만 원래
+  // anchorX/Y에 더해서 반영한다 — 그러면 어디를 잡고 드래그하든 마커가 커서와 함께
+  // 자연스럽게(튀지 않고) 움직이고, 놓는 자리도 항상 "원래 위치 + 실제로 마우스가
+  // 움직인 만큼"이 되어 예상과 어긋나지 않는다.
   const pointerStart = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const dragStartWorldRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [dragWorldPos, setDragWorldPos] = useState<{ x: number; y: number } | null>(null);
   // 요구사항 변경(2026-09-14): canvas-world는 pan/zoom을 transform:scale(zoom)으로
@@ -93,6 +103,7 @@ function LinkMarkerDot({
     e.stopPropagation();
     if (e.button !== 0) return; // 우클릭은 여기서 아무 것도 하지 않고 onContextMenu로 넘긴다.
     pointerStart.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
+    dragStartWorldRef.current = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
     draggingRef.current = false;
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -104,7 +115,14 @@ function LinkMarkerDot({
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) < DRAG_THRESHOLD_PX) return;
       draggingRef.current = true;
     }
-    setDragWorldPos(clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState()));
+    const dragStartWorld = dragStartWorldRef.current;
+    const currentWorld = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
+    // pointerdown 이후 커서가 world 좌표계에서 실제로 이동한 만큼(delta)만
+    // 원래 anchorX/Y에 더한다 — 커서의 "절대" world 좌표를 그대로 쓰지 않아야
+    // 마커 안 어디를 잡았는지와 무관하게 튀지 않고 자연스럽게 따라온다(위 주석 참고).
+    const dx = dragStartWorld ? currentWorld.x - dragStartWorld.x : 0;
+    const dy = dragStartWorld ? currentWorld.y - dragStartWorld.y : 0;
+    setDragWorldPos({ x: anchorX + dx, y: anchorY + dy });
   };
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -115,17 +133,27 @@ function LinkMarkerDot({
     e.stopPropagation();
 
     if (!draggingRef.current) {
+      dragStartWorldRef.current = null;
       onNavigate(e.clientX, e.clientY);
       return;
     }
     draggingRef.current = false;
     setDragWorldPos(null);
 
+    const dragStartWorld = dragStartWorldRef.current;
+    dragStartWorldRef.current = null;
+    const currentWorld = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
+    const dx = dragStartWorld ? currentWorld.x - dragStartWorld.x : 0;
+    const dy = dragStartWorld ? currentWorld.y - dragStartWorld.y : 0;
+    const world = { x: anchorX + dx, y: anchorY + dy };
+
     // 마커 자신은 지금 pointerEvents:none이라 elementFromPoint가 그 "아래" 진짜
     // 엘리먼트를 돌려준다 — useLinkTool.ts와 동일한 data-object-id closest 규칙.
+    // 히트테스트는 실제 커서 화면 좌표(e.clientX/Y) 기준으로 하되(그 자리에 있는
+    // 진짜 DOM 엘리먼트를 찾아야 하므로), anchor에 저장하는 위치는 위에서 계산한
+    // "delta 보정된" world를 쓴다 — 두 계산이 서로 다른 목적이라 섞이지 않는다.
     const dropTarget = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
     const objectId = dropTarget?.closest('[data-object-id]')?.getAttribute('data-object-id') ?? null;
-    const world = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
     const targetObject = objectId ? useObjectsStore.getState().objects[objectId] : undefined;
     const anchor: LinkAnchor = {
       surface: 'page',
@@ -140,6 +168,7 @@ function LinkMarkerDot({
 
   const handlePointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
     pointerStart.current = null;
+    dragStartWorldRef.current = null;
     draggingRef.current = false;
     setDragWorldPos(null);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
