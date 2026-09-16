@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { produceWithPatches } from 'immer';
 import type { CanvasObject, ImageHighlight, TextObject } from '../types/object';
-import type { TextAnnotation, TextLine } from '../objects/text/indentation/types';
+import type { TextAnnotation, TextHighlight, TextLine } from '../objects/text/indentation/types';
 import {
   createRangeId,
   eraseHighlightsInRange,
@@ -201,6 +201,21 @@ interface ObjectsState {
     fontSize?: number,
   ) => string;
   updateAnnotationText: (objectId: string, lineId: string, annotationId: string, text: string) => void;
+  /**
+   * 요구사항(2026-09-15, 주석 하나만 복사/붙여넣기): 이미 존재하는 주석 하나의
+   * 텍스트/색/글꼴/크기/형광펜을 annotationClipboardStore에 복사해둔 내용으로 통째로
+   * 덮어쓴다 — 새 주석을 만드는 게 아니라 "지금 편집 중인(방금 클릭으로 만든 빈)
+   * 주석"에 그대로 적용하는 용도(AnnotationBubble.tsx의 onPaste → TextObjectView.tsx의
+   * onPasteAnnotation 참고). updateAnnotationColor/FontFamily/FontSize/Text를 각각
+   * 따로 호출하면 undo 단계가 그만큼 쪼개지므로, 붙여넣기 한 번 = undo 한 단계가
+   * 되도록 단일 mutate 호출로 처리한다.
+   */
+  applyAnnotationClipboard: (
+    objectId: string,
+    lineId: string,
+    annotationId: string,
+    content: { text: string; color?: string; fontFamily?: string; fontSize?: number; highlights?: TextHighlight[] },
+  ) => void;
   /** Phase 8(스타일 패널): 이미 만들어진 주석 하나의 색만 바꾼다 — updateHighlightColor와 동일한 원리. */
   updateAnnotationColor: (objectId: string, lineId: string, annotationId: string, color: string) => void;
   /** 요구사항(폰트 목록 통합): 이미 만들어진 주석 하나의 글꼴만 바꾼다 — updateAnnotationColor와 동일한 원리. */
@@ -532,12 +547,42 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
           ...line,
           annotations: [
             ...(line.annotations ?? []),
-            { id, start, end, text: '', color, fontFamily, fontSize } as TextAnnotation,
+            {
+              id,
+              start,
+              end,
+              text: '',
+              color,
+              fontFamily,
+              fontSize,
+            } as TextAnnotation,
           ],
         })),
       );
       return id;
     },
+
+    // 요구사항(2026-09-15, 주석 하나만 복사/붙여넣기): interface 선언부(위쪽) 주석 참고 —
+    // 편집 중인 빈 주석 하나를 복사해둔 내용으로 통째로 덮어쓴다. 단일 mutate 호출이라
+    // undo 한 단계로 묶인다.
+    applyAnnotationClipboard: (objectId, lineId, annotationId, content) =>
+      mutate((draft) =>
+        updateLineIn(draft, objectId, lineId, (line) => ({
+          ...line,
+          annotations: (line.annotations ?? []).map((a) =>
+            a.id === annotationId
+              ? {
+                  ...a,
+                  text: content.text,
+                  color: content.color ?? a.color,
+                  fontFamily: content.fontFamily ?? a.fontFamily,
+                  fontSize: content.fontSize ?? a.fontSize,
+                  highlights: content.highlights,
+                }
+              : a,
+          ),
+        })),
+      ),
 
     updateAnnotationColor: (objectId, lineId, annotationId, color) =>
       mutate((draft) =>

@@ -1,9 +1,11 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { TextAnnotation } from './indentation/types';
 import { useViewportStore } from '../../store/viewportStore';
 import { useToolStore } from '../../store/toolStore';
 import { useHistoryStore } from '../../store/historyStore';
+import { useAnnotationClipboardStore } from '../../store/annotationClipboardStore';
+import type { CopiedAnnotationPayload } from '../../store/annotationClipboardStore';
 import { useFontStore } from '../../store/fontStore';
 import { highlightBackgroundFor } from './highlightColors';
 import { annotationVisualsFor } from './annotationColors';
@@ -205,6 +207,13 @@ interface AnnotationBubbleProps {
   onDragOffsetChange: (offsetX: number, offsetY: number) => void;
   /** 이 말풍선이 실제로 렌더링된 높이(월드 px)가 바뀔 때마다 호출 — 부모가 줄 위 여백을 계산하는 데 쓴다. */
   onHeightChange: (height: number) => void;
+  /**
+   * 요구사항(2026-09-15, 주석 개별 복사·붙여넣기): 편집 중 Ctrl+V를 눌렀을 때
+   * annotationClipboardStore에 복사해둔 주석이 있으면 호출된다(handlePaste 참고).
+   * 부모(TextObjectView.tsx)가 이 값으로 objectsStore.applyAnnotationClipboard를
+   * 호출해 "지금 편집 중인 이 주석"을 통째로 덮어쓴다 — 새 주석을 만들지 않는다.
+   */
+  onPasteAnnotation: (payload: CopiedAnnotationPayload) => void;
 }
 
 /**
@@ -242,6 +251,7 @@ export function AnnotationBubble({
   onCancelEmpty,
   onDragOffsetChange,
   onHeightChange,
+  onPasteAnnotation,
 }: AnnotationBubbleProps) {
   // 버그 수정(새로고침 후 형광펜/화살표가 다른 곳에 그려짐): 이 주석이 커스텀
   // (업로드한) 폰트를 쓰면, 그 폰트가 IndexedDB에서 비동기로 다시 등록되기 전에
@@ -520,6 +530,55 @@ export function AnnotationBubble({
       focusLineAt(el, cursorIndex);
     }
     onTextChange(newText);
+  };
+
+  /**
+   * 버그 수정(주석에 Ctrl+V로 붙여넣으면 기존 주석 스타일이 아니라 복사 출처(본문 텍스트
+   * 등)의 크기/폰트/색상으로 보이던 문제): 이 contentEditable에는 지금까지 onPaste
+   * 핸들러가 없어서 브라우저 기본 붙여넣기(클립보드의 HTML 표현을 그대로 삽입)에 맡겨져
+   * 있었다 — 복사 출처의 인라인 스타일(font-size/color/font-family)이 담긴 <span>이 그대로
+   * DOM에 삽입되어, 이 말풍선 자신의 스타일(annotation.fontFamily/fontSize/color, 위
+   * bubble style)을 덮어썼다. syncText는 el.textContent만 읽어 store에는 순수 텍스트가
+   * 올바르게 반영되지만, 그 <span>들은 아무도 지우지 않는다 — 타이핑 중엔 DOM을 통째로
+   * 다시 쓰지 않는 "uncontrolled contentEditable" 관례(위 문서 주석 참고)라, 한 번 섞여
+   * 들어온 인라인 스타일은 이후에도 계속 잘못된 모습으로 남는다.
+   *
+   * TextObjectView.tsx의 handlePaste(줄 단위 본문 붙여넣기)와 같은 원리로, 여기서도
+   * 항상 preventDefault하고 순수 텍스트만 execCommand('insertText')로 직접 삽입한다 —
+   * 브라우저가 인라인 스타일 없이 부모(이 말풍선)의 스타일을 그대로 상속하는 텍스트로
+   * 넣어준다(TextObjectView.tsx의 Tab 삽입과 동일한 기법 — execCommand가 뒤이어 'input'
+   * 이벤트를 쏴주므로 위 onInput의 기존 syncText 경로가 그대로 재사용된다). 여러 줄(개행
+   * 포함) 텍스트는 Enter가 항상 편집을 끝내는 이 주석의 단일 줄 모델과 맞추기 위해
+   * 공백으로 합친다.
+   *
+   * 요구사항(2026-09-15, 주석 개별 복사·붙여넣기): 단어를 클릭해서 만든 "빈 주석을
+   * 편집하는 중" Ctrl+V를 누르면, 먼저 annotationClipboardStore(주석을 Ctrl+C한
+   * 결과가 담기는 전용 스토어 — useClipboardShortcuts.ts 참고)에 복사된 주석이
+   * 있는지부터 확인한다. 주석 자체의 Ctrl+C는 OS 클립보드를 전혀 건드리지 않으므로
+   * (그 훅의 docstring 참고) e.clipboardData 쪽은 항상 비어있거나 무관한 내용일 수
+   * 있다 — 그래서 OS 클립보드보다 이 store를 먼저 봐야 한다. 있으면: 이 텍스트를
+   * DOM에 직접 쓰고(uncontrolled contentEditable 관례상 store 반영만으론 화면이 안
+   * 바뀐다) 커서를 끝으로 옮긴 뒤, onPasteAnnotation으로 부모에게 알린다 — 부모는
+   * 새 주석을 만들지 않고 "지금 이 주석(annotation.id)"을 통째로 덮어쓰므로 화살표가
+   * 두 개로 겹칠 일이 없다. 없으면(주석이 아니라 일반 텍스트를 복사해둔 상태) 기존
+   * 그대로 순수 텍스트 붙여넣기로 넘어간다.
+   */
+  const handlePaste = (e: ReactClipboardEvent<HTMLDivElement>) => {
+    const copied = useAnnotationClipboardStore.getState().payload;
+    if (copied) {
+      e.preventDefault();
+      const el = e.currentTarget;
+      el.textContent = copied.text;
+      focusLineAt(el, copied.text.length);
+      onPasteAnnotation(copied);
+      return;
+    }
+
+    const text = e.clipboardData?.getData('text/plain') ?? '';
+    if (!text) return;
+    e.preventDefault();
+    const flattened = text.replace(/\r\n|\r|\n/g, ' ');
+    document.execCommand('insertText', false, flattened);
   };
 
   // 편집을 끝낼 때(Enter/Escape/blur)만 호출 — 최종 텍스트를 확정하고 편집 모드를 나간다.
@@ -825,6 +884,7 @@ export function AnnotationBubble({
               : undefined
           }
           onBlur={isEditing ? (e) => finish(e.currentTarget) : undefined}
+          onPaste={isEditing ? handlePaste : undefined}
           onKeyDown={
             isEditing
               ? (e) => {

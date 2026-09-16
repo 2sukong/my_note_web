@@ -4,6 +4,7 @@ import { useInteractionStore } from '../../store/interactionStore';
 import { useObjectsStore } from '../../store/objectsStore';
 import { useViewportStore } from '../../store/viewportStore';
 import { useClipboardStore } from '../../store/clipboardStore';
+import { useAnnotationClipboardStore } from '../../store/annotationClipboardStore';
 import { pasteClipboardObjects, pasteExternalObjects } from '../actions';
 import { deserializeExternalClipboard, serializeExternalClipboard } from './externalClipboardFormat';
 
@@ -89,8 +90,44 @@ export function useClipboardShortcuts() {
 
       if (useInteractionStore.getState().mode === 'text-edit') return;
 
+      const { selectedIds, fineSelection } = useInteractionStore.getState();
+
+      // 요구사항(2026-09-15, 주석 하나만 복사/붙여넣기): 주석은 selectedIds가 아니라
+      // fineSelection(kind:'annotation')으로 선택된다(주석을 클릭하면 selectFine이
+      // selectedIds를 비우고 이쪽만 채운다 — interactionStore.ts 참고) — 그래서 아래
+      // selectedIds 기반 객체 복사/잘라내기 로직과 완전히 분리된 별도 분기가 필요하다.
+      // 여기서 다루는 건 이 주석 "내용물"(텍스트/색/글꼴/크기/자기 형광펜)뿐이고,
+      // annotationClipboardStore(CanvasObject 전용 clipboardStore와 별개)에 담는다 —
+      // 붙여넣기는 대상 단어를 클릭하는 쪽에서 처리한다(useTextSelectionTools.ts의
+      // 'annotation' 도구 클릭 처리 참고, anchor는 항상 붙여넣는 자리에서 새로 정해짐).
+      if (fineSelection?.kind === 'annotation') {
+        e.preventDefault();
+        const { objectId, lineId, id } = fineSelection;
+        const obj = useObjectsStore.getState().objects[objectId];
+        const line = obj?.type === 'text' ? obj.lines.find((l) => l.id === lineId) : undefined;
+        const annotation = line?.annotations?.find((a) => a.id === id);
+        if (!annotation) return;
+
+        useAnnotationClipboardStore.getState().copy({
+          text: annotation.text,
+          color: annotation.color,
+          fontFamily: annotation.fontFamily,
+          fontSize: annotation.fontSize,
+          highlights: annotation.highlights ? structuredClone(annotation.highlights) : undefined,
+        });
+
+        if (key === 'x') {
+          // 객체 잘라내기와 동일한 규칙: 잠긴 객체(이 주석이 속한 텍스트 상자) 안의
+          // 주석은 복사는 되지만 실제로 지워지지는 않는다.
+          if (!obj?.locked) {
+            useObjectsStore.getState().removeAnnotation(objectId, lineId, id);
+          }
+          useInteractionStore.getState().deselect();
+        }
+        return;
+      }
+
       // 선택된 객체가 없으면 아무 것도 하지 않는다(네이티브 동작에 영향 없음).
-      const { selectedIds } = useInteractionStore.getState();
       if (selectedIds.length === 0) return;
       e.preventDefault();
 

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { TextObject } from '../../types/object';
-import type { TextAnnotation, TextLine, TextRun } from './indentation/types';
+import type { TextAnnotation, TextHighlight, TextLine, TextRun } from './indentation/types';
 import { createLineId, lineText } from './indentation/types';
 import {
   BULLET_INDENT_UNIT,
@@ -1745,6 +1745,30 @@ export function TextObjectView({ object }: { object: TextObject }) {
               if (annotationSeasonedRef.current.has(annotation.id)) return;
               removeAnnotation(object.id, lineId, annotation.id);
               useInteractionStore.getState().deselect();
+            }}
+            onPasteAnnotation={(copied) => {
+              // 요구사항(2026-09-15, 주석 개별 복사·붙여넣기): 방금 클릭으로 만든 빈
+              // 주석을 편집하던 중 Ctrl+V로 복사해둔 주석을 적용하는 시점 —
+              // AnnotationBubble.tsx의 handlePaste 참고. 새 주석(id)을 만들지 않고
+              // "지금 이 주석"(annotation.id)을 objectsStore.applyAnnotationClipboard로
+              // 통째로 덮어쓰므로, 화살표가 기존 화살표와 겹쳐 2개가 되는 일이 없다.
+              // 형광펜 구간은 복사 출처와 id가 겹치지 않도록 새로 발급한다(같은
+              // 형광펜을 여러 단어에 반복해서 붙여넣어도 서로 독립적인 구간이 되도록).
+              const highlights: TextHighlight[] | undefined = copied.highlights?.map((h) => ({
+                ...h,
+                id: crypto.randomUUID(),
+              }));
+              useObjectsStore.getState().applyAnnotationClipboard(object.id, lineId, annotation.id, {
+                text: copied.text,
+                color: copied.color,
+                fontFamily: copied.fontFamily,
+                fontSize: copied.fontSize,
+                highlights,
+              });
+              // 붙여넣은 내용이 비어있지 않다면 "한 번도 내용이 있어본 적 없는" 상태가
+              // 아니므로, 위 onTextChange/onCancelEmpty의 자동 삭제 로직이 오작동하지
+              // 않도록 seasoned로 표시해둔다.
+              if (copied.text.trim() !== '') annotationSeasonedRef.current.add(annotation.id);
             }}
           />
         );

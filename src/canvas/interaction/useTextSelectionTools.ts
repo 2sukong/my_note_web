@@ -155,17 +155,16 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
         const targetObject = useObjectsStore.getState().objects[anchor.objectId];
         if (!targetObject || targetObject.type !== 'text') return;
 
+        // 요구사항 변경(2026-09-15): 클릭은 항상(복사해둔 주석이 있어도) 기존과 동일하게
+        // 툴바 기본값의 빈 주석 + 화살표를 만들고 편집 모드로 들어간다 — "클릭하면 바로
+        // 복사한 주석이 붙는" 이전 동작은 화살표/편집 상태를 볼 새도 없이 곧장 확정돼
+        // 버려서 되돌렸다. 복사해둔 주석(annotationClipboardStore)을 실제로 적용하는
+        // 시점은 이 방금 만든 빈 주석을 "편집하는 동안" Ctrl+V를 누르는 순간이다
+        // (AnnotationBubble.tsx의 onPaste → onPasteAnnotation 참고) — 같은 id의 주석을
+        // 그 자리에서 덮어쓸 뿐 새로 만들지 않으므로 화살표가 두 개로 겹칠 일이 없다.
         const annotationId = useObjectsStore
           .getState()
-          .addAnnotation(
-            anchor.objectId,
-            anchor.lineId,
-            anchor.start,
-            anchor.end,
-            annotationColor,
-            annotationFontFamily,
-            annotationFontSize,
-          );
+          .addAnnotation(anchor.objectId, anchor.lineId, anchor.start, anchor.end, annotationColor, annotationFontFamily, annotationFontSize);
 
         clearNativeSelection();
         useInteractionStore
