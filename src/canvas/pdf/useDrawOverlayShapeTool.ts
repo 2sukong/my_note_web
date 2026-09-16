@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { SHAPE_TOOL_IDS, useToolStore } from '../../store/toolStore';
 import type { ShapeToolId } from '../actions';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { usePdfOverlayShapeDraftStore } from '../../store/pdfOverlayShapeDraftStore';
@@ -52,6 +53,9 @@ export function useDrawOverlayShapeTool(
 
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): useOverlayHighlightTool.ts와
+      // 같은 이유 — usePdfViewerStore.isSpacePressed 참고.
+      if (usePdfViewerStore.getState().isSpacePressed) return;
       const tool = useToolStore.getState().activeTool;
       if (!SHAPE_TOOL_IDS.includes(tool)) return;
 

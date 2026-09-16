@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import { createPlainLine } from '../../objects/text/indentation/types';
 import type { TextObject } from '../../types/object';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { usePdfOverlayTextDrawDraftStore } from '../../store/pdfOverlayTextDrawDraftStore';
@@ -62,6 +63,9 @@ export function useDrawOverlayTextTool(
     // 클릭으로 선택 해제" 판정을 pointerdown 시점에 한다(click이 아니라).
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): useOverlayHighlightTool.ts와
+      // 같은 이유 — usePdfViewerStore.isSpacePressed 참고.
+      if (usePdfViewerStore.getState().isSpacePressed) return;
       if (e.target !== el) return;
 
       if (useToolStore.getState().activeTool === 'select') {

@@ -9,15 +9,17 @@ const ZOOM_SENSITIVITY = 0.0015; // canvas/viewport/useWheelZoom.ts와 같은 �
  * useWheelZoom.ts(메인 캔버스 줌)와 완전히 같은 지수 감쇠 계산을 쓰되, 대상은
  * viewportStore.zoom이 아니라 pdfViewerStore.pageZoom이다.
  *
- * Ctrl 없는 일반 휠은 여기서 아무 것도 안 하고 그대로 흘려보낸다 — 확대된 뒤
- * `.pdf-viewer-stage`(overflow:auto로 바뀜, PdfViewerPanel.css)를 마우스 휠로 자연스럽게
- * 스크롤(패닝)할 수 있어야 하기 때문이다. `.pdf-viewer-panel` 전체가 이미
- * useWheelZoom.ts의 제외 목록에 들어있어서(2026-09 추가), 여기서 stopPropagation을
- * 안 해도 메인 캔버스 줌으로 새지 않는다.
+ * 요구사항 변경(2026-09-16, "PDF 이동을 SPACE+드래그로"): 예전엔 Ctrl 없는 일반 휠을
+ * 여기서 그냥 흘려보내 `.pdf-viewer-stage`의 네이티브 스크롤(overflow:auto)이 패닝을
+ * 대신했는데, 그 방식엔 "오른쪽으로만 이동되고 왼쪽으로는 안 되는" 방향성 버그가 있었다
+ * (canvas/pdf/usePdfViewerPan.ts 상단 주석 참고 — transform:scale된 flex-중앙정렬
+ * 요소의 스크롤 오버플로가 좌우 비대칭으로 계산되는 크로스 브라우저 공통 결함). 이제
+ * `.pdf-viewer-stage`는 overflow:hidden으로 바뀌었고(PdfViewerPanel.css) 이동은 전부
+ * pdfViewerStore.panBy(usePdfViewerPan.ts의 Space+드래그와 동일한 액션)로 처리한다 —
+ * useWheelZoom.ts(메인 캔버스)가 Ctrl 없는 휠을 panBy로 처리하는 것과 완전히 같은 관례.
  *
- * containerRef는 `.pdf-viewer-stage`(페이지를 감싸는 스크롤 가능 영역) — 페이지 이미지
- * 자체(pageRef)가 아니라 이 스테이지에 붙여야, 페이지 주변 여백 위에서 Ctrl+스크롤해도
- * 반응한다.
+ * containerRef는 `.pdf-viewer-stage`(페이지를 감싸는 영역) — 페이지 이미지 자체
+ * (pageRef)가 아니라 이 스테이지에 붙여야, 페이지 주변 여백 위에서 휠을 굴려도 반응한다.
  */
 export function usePdfViewerZoom(containerRef: RefObject<HTMLDivElement | null>, pageWidth: number) {
   useEffect(() => {
@@ -25,10 +27,15 @@ export function usePdfViewerZoom(containerRef: RefObject<HTMLDivElement | null>,
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
       e.preventDefault();
 
-      const { pageZoom, setPageZoom } = usePdfViewerStore.getState();
+      const { pageZoom, setPageZoom, panBy } = usePdfViewerStore.getState();
+
+      if (!e.ctrlKey) {
+        panBy(-e.deltaX, -e.deltaY);
+        return;
+      }
+
       const nextZoom = pageZoom * Math.exp(-e.deltaY * ZOOM_SENSITIVITY);
       setPageZoom(nextZoom);
     };

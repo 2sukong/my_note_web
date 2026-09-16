@@ -20,6 +20,7 @@ import { useDrawOverlayShapeTool } from './useDrawOverlayShapeTool';
 import { PdfOverlayShapeDraftLayer } from './PdfOverlayShapeDraftLayer';
 import { PdfOverlayTextDraftLayer } from './PdfOverlayTextDraftLayer';
 import { usePdfViewerZoom } from './usePdfViewerZoom';
+import { usePdfViewerPan } from './usePdfViewerPan';
 import { useOverlayImagePlacementTool } from './useOverlayImagePlacementTool';
 import { usePdfOverlayImagePickerStore } from '../../store/pdfOverlayImagePickerStore';
 import { spawnOverlayImageAt } from './spawnOverlayImage';
@@ -114,6 +115,8 @@ export function PdfViewerPanel() {
   const currentPageIndex = usePdfViewerStore((s) => s.currentPageIndex);
   const width = usePdfViewerStore((s) => s.width);
   const pageZoom = usePdfViewerStore((s) => s.pageZoom);
+  const panX = usePdfViewerStore((s) => s.panX);
+  const panY = usePdfViewerStore((s) => s.panY);
   const setCurrentPageIndex = usePdfViewerStore((s) => s.setCurrentPageIndex);
   const setWidth = usePdfViewerStore((s) => s.setWidth);
   const commitWidth = usePdfViewerStore((s) => s.commitWidth);
@@ -329,6 +332,10 @@ export function PdfViewerPanel() {
   // height<=0) 스스로 아무 것도 하지 않으므로 항상 호출해도 안전하다.
   useOverlayLinkTool(pageRef, stagePage?.width ?? 0, stagePage?.height ?? 0);
   usePdfViewerZoom(stageRef, stagePage?.width ?? 0);
+  // 요구사항(2026-09-16, "PDF 이동을 SPACE+드래그로"): usePdfViewerZoom과 같은
+  // stageRef(`.pdf-viewer-stage`)에 붙인다 — 페이지 자체(pageRef)가 아니라 그 주변
+  // 여백 위에서 드래그를 시작해도 반응해야 하기 때문이다.
+  const { cursor: panCursor } = usePdfViewerPan(stageRef);
 
   // 요구사항(2026-09, 필름스트립 빨간 테두리): "지금 보고 있는" 페이지는 디바운스 저장을
   // 기다리지 않고 pdfOverlayStore의 메모리 상태를 그대로 읽어 즉시 반영한다(§ 위
@@ -501,7 +508,7 @@ export function PdfViewerPanel() {
         </button>
       </div>
 
-      <div className="pdf-viewer-stage" ref={stageRef}>
+      <div className="pdf-viewer-stage" ref={stageRef} style={panCursor ? { cursor: panCursor } : undefined}>
         {stagePage && (
           <div
             className="pdf-viewer-page"
@@ -524,7 +531,14 @@ export function PdfViewerPanel() {
               // 로 실측하는 displayScale(PdfOverlayObjectsLayer.tsx)이 확대된 실제 크기를
               // 그대로 읽어 오버레이 글자/객체도 자연스럽게 같이 커진다. 1일 땐 scale(1)이라
               // 기존 동작과 완전히 동일하다.
-              transform: `scale(${pageZoom})`,
+              //
+              // 요구사항(2026-09-16, "PDF 이동을 SPACE+드래그로"): translate가 scale보다
+              // 앞(바깥쪽)에 오는 순서를 지킨다 — translate(panX,panY) scale(pageZoom)은
+              // "먼저 scale로 확대한 결과를, 그 배율과 무관한 화면 px만큼 옮긴다"는
+              // 뜻이라 usePdfViewerPan.ts가 더하는 raw 포인터 이동량(px)이 pageZoom
+              // 배율에 좌우되지 않고 그대로 반영된다(순서를 반대로 하면 translate 값
+              // 자체가 확대되어 버려 드래그가 커서보다 몇 배 더 빠르게 움직여 보인다).
+              transform: `translate(${panX}px, ${panY}px) scale(${pageZoom})`,
             }}
           >
             <img src={stagePage.url} alt={`${panelRecord.name} ${currentPageIndex + 1}페이지`} draggable={false} />

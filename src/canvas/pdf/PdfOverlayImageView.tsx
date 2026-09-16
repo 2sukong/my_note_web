@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ImageObject } from '../../types/object';
 import { getCachedImageUrl, loadImageUrl } from '../../objects/image/imageStore';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { PdfOverlayResizeHandles } from './PdfOverlayResizeHandles';
@@ -74,6 +75,9 @@ export function PdfOverlayImageView({
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): PdfOverlayShapeView.tsx와
+    // 같은 이유 — usePdfViewerStore.isSpacePressed 참고.
+    if (usePdfViewerStore.getState().isSpacePressed) return;
     if (activeTool !== 'select') return;
     usePdfOverlaySelectionStore.getState().select(object.id);
     dragRef.current = {

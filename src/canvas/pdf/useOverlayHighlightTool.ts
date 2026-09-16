@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { RefObject } from 'react';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlayHighlightDraftStore } from '../../store/pdfOverlayHighlightDraftStore';
 import {
@@ -43,6 +44,12 @@ export function useOverlayHighlightTool(
 
     const handlePointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
+      // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): Space를 누른 채
+      // 페이지를 옮기려는 제스처가 이 훅까지 먼저 도달해(pageRef가 canvas/pdf/
+      // usePdfViewerPan.ts의 대상인 stageRef보다 안쪽이라 pointerdown이 여기부터
+      // 버블링을 시작한다) 형광펜 draft를 실수로 만들기 시작하면 안 된다 —
+      // usePdfViewerStore.isSpacePressed 참고.
+      if (usePdfViewerStore.getState().isSpacePressed) return;
       if (useToolStore.getState().activeTool !== 'highlight') return;
       // 버그 수정(2026-08): 텍스트 오버레이 객체(.pdf-overlay-text, Phase 6 텍스트/주석)
       // 위에서 드래그를 시작했으면 이 훅은 완전히 손을 뗀다 — canvas/interaction/

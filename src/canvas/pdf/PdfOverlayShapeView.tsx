@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { ArrowObject, ShapeObject } from '../../types/object';
 import { MIN_VISUAL, ShapeSvgContent } from '../../objects/shapes/ShapeSvgContent';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
 import { PdfOverlayResizeHandles } from './PdfOverlayResizeHandles';
@@ -51,6 +52,11 @@ export function PdfOverlayShapeView({
 
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): Space를 누른 채 페이지를
+    // 옮기려는 제스처가 이 객체 위에서 시작됐다고 해서 그 객체가 선택/이동돼서는 안
+    // 된다(usePdfViewerStore.isSpacePressed 참고 — 메인 캔버스 objects/ObjectView.tsx의
+    // isSpacePressed 가드와 같은 목적).
+    if (usePdfViewerStore.getState().isSpacePressed) return;
     if (activeTool !== 'select') return;
     usePdfOverlaySelectionStore.getState().select(object.id);
     dragRef.current = {

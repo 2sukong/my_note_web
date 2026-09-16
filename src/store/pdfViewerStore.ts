@@ -52,6 +52,16 @@ function clampPageZoom(zoom: number): number {
   return Math.min(PDF_PAGE_ZOOM_MAX, Math.max(PDF_PAGE_ZOOM_MIN, zoom));
 }
 
+/**
+ * 요구사항(2026-09-16, "PDF 이동을 SPACE+드래그로"): panX/panY는 확대된 페이지를
+ * 화면 안에서 얼마나 옮겨 보고 있는지(screen px 단위, transform:translate로 적용)를
+ * 담는다. 메인 캔버스의 viewportStore.panBy와 같은 "화면 px 델타를 그대로 더한다"
+ * 방식이라 별도 클램프가 없다 — 대신 페이지/PDF를 바꾸거나(openViewer/closeViewer/
+ * setCurrentPageIndex) 배율이 최소(1배, 패널에 꼭 맞는 크기)로 돌아가면 0,0으로
+ * 되돌려서 "옮길 이유가 없는 상태"에서 페이지가 화면 밖으로 사라진 채 남지 않게 한다
+ * (canvas/pdf/usePdfViewerPan.ts가 이 값을 갱신한다).
+ */
+
 /** index.css의 --pdf-rail-offset(58px)과 같은 값 — PdfLibraryRail 오른쪽에서 Viewer
  * 패널이 시작되기까지의 고정 여백. CSS 변수를 JS에서 매번 getComputedStyle로 읽어오는
  * 대신 상수로 들고 있다(단순함 우선) — index.css 쪽 값을 바꾸면 이 값도 같이 맞출 것. */
@@ -102,6 +112,17 @@ interface PdfViewerState {
   /** 페이지 확대 배율(위 PDF_PAGE_ZOOM_MIN/MAX 설명 참고). PDF를 열거나 페이지를
    * 넘길 때마다 1로 되돌린다(아래 openViewer/closeViewer/setCurrentPageIndex). */
   pageZoom: number;
+  /** 위 panX/panY 설명 참고 — screen px 단위 이동량. */
+  panX: number;
+  panY: number;
+  /** canvas/pdf/usePdfViewerPan.ts가 window keydown/keyup으로 갱신 — 다른 PDF 오버레이
+   * 포인터 도구들(형광펜/도형/텍스트/이미지 드래그 생성, 기존 객체 이동, 링크 마커
+   * 드래그)이 "지금 스페이스로 화면을 옮기는 중인지"를 getState()로 바로 확인해서,
+   * 자기 자신의 드래그/그리기를 시작하지 않게 한다(메인 캔버스 objects/ObjectView.tsx가
+   * Canvas.tsx로부터 usePan()의 isSpacePressed를 prop으로 내려받는 것과 같은 목적을
+   * store 하나로 대신한다 — PDF 쪽은 이 값을 필요로 하는 훅/컴포넌트가 여러 파일에
+   * 흩어져 있어 prop 전달보다 전역 상태가 더 단순하다). */
+  isSpacePressed: boolean;
 
   /** Library에서 PDF를 클릭했을 때 호출. pageIndex 생략 시 0페이지(첫 페이지)부터. */
   openViewer: (pdfId: string, pageIndex?: number) => void;
@@ -113,6 +134,10 @@ interface PdfViewerState {
   commitWidth: () => void;
   /** Ctrl+휠(usePdfViewerZoom.ts)마다 호출. */
   setPageZoom: (zoom: number) => void;
+  /** Space+드래그(usePdfViewerPan.ts)/일반 휠(usePdfViewerZoom.ts) 둘 다 이 액션으로
+   * 이동한다 — screen px 델타를 그대로 더한다(viewportStore.panBy와 같은 방식). */
+  panBy: (dx: number, dy: number) => void;
+  setSpacePressed: (pressed: boolean) => void;
 }
 
 const initialWidth = readInitialWidth();
@@ -122,17 +147,32 @@ export const usePdfViewerStore = create<PdfViewerState>((set, get) => ({
   currentPageIndex: 0,
   width: initialWidth,
   pageZoom: 1,
+  panX: 0,
+  panY: 0,
+  isSpacePressed: false,
 
   openViewer: (pdfId, pageIndex = 0) => {
-    set({ openPdfId: pdfId, currentPageIndex: pageIndex, pageZoom: 1 });
+    set({ openPdfId: pdfId, currentPageIndex: pageIndex, pageZoom: 1, panX: 0, panY: 0 });
     applyShiftCssVar(true, get().width);
   },
   closeViewer: () => {
-    set({ openPdfId: null, pageZoom: 1 });
+    set({ openPdfId: null, pageZoom: 1, panX: 0, panY: 0 });
     applyShiftCssVar(false, get().width);
   },
-  setCurrentPageIndex: (pageIndex) => set({ currentPageIndex: pageIndex, pageZoom: 1 }),
-  setPageZoom: (zoom) => set({ pageZoom: clampPageZoom(zoom) }),
+  setCurrentPageIndex: (pageIndex) => set({ currentPageIndex: pageIndex, pageZoom: 1, panX: 0, panY: 0 }),
+  setPageZoom: (zoom) => {
+    const clamped = clampPageZoom(zoom);
+    // 배율이 최소(1배, 패널에 꼭 맞는 기본 크기)로 돌아가면 pan도 같이 0으로 되돌린다 —
+    // 안 그러면 이전에 옮겨둔 위치가 남아 있어 "확대 안 한 페이지가 화면 밖으로 밀려나
+    // 보이지 않는" 상태가 될 수 있다(위 panX/panY 주석 참고).
+    if (clamped === PDF_PAGE_ZOOM_MIN) {
+      set({ pageZoom: clamped, panX: 0, panY: 0 });
+    } else {
+      set({ pageZoom: clamped });
+    }
+  },
+  panBy: (dx, dy) => set((s) => ({ panX: s.panX + dx, panY: s.panY + dy })),
+  setSpacePressed: (pressed) => set({ isSpacePressed: pressed }),
   setWidth: (width) => {
     const clamped = clampWidth(width);
     set({ width: clamped });

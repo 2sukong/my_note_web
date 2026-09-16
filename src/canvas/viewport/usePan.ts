@@ -60,6 +60,16 @@ export function usePan(containerRef: RefObject<HTMLDivElement | null>) {
 
     const handlePointerDown = (e: PointerEvent) => {
       if (!shouldStartPan(e)) return;
+      // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): PdfViewerPanel이
+      // canvas-root(이 훅의 containerRef)의 자식이라, PDF 뷰어의 `.pdf-viewer-stage`
+      // 위에서 시작한 Space+드래그도 버블링을 타고 여기까지 올라온다 — 그대로 두면
+      // canvas/pdf/usePdfViewerPan.ts가 이미 처리 중인 같은 제스처를 메인 캔버스도
+      // 동시에 pan으로 인식해서, 두 pan이 pointer capture를 다투다 나중에 실행되는
+      // 이쪽(캔버스 쪽)이 이겨 PDF 페이지 이동이 중간에 끊기는 문제가 생긴다.
+      // useWheelZoom.ts가 이미 같은 이유로 `.pdf-viewer-panel`을 제외하는 것과 같은
+      // 관례로, 여기서도 그 안에서 시작한 제스처는 무시한다(usePdfViewerPan.ts 쪽에서
+      // stopPropagation도 걸어두지만, 이중 방어로 여기도 막아둔다).
+      if ((e.target as HTMLElement | null)?.closest('.pdf-viewer-panel')) return;
       e.preventDefault();
       // 버그 수정(스페이스+드래그로 화면 이동 중 텍스트에 스페이스가 계속 입력됨):
       // 텍스트 편집 중(mode==='text-edit') 커서가 편집 중인 텍스트 위에 있을 때 스페이스를

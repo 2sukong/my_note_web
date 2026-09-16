@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayImagePickerStore } from '../../store/pdfOverlayImagePickerStore';
 
 /**
@@ -28,6 +29,10 @@ export function useOverlayImagePlacementTool(
     if (!el || pageWidth <= 0 || pageHeight <= 0) return;
 
     const handleClick = (e: MouseEvent) => {
+      // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): 이론상 pan 드래그는
+      // pointer capture 때문에 'click'까지 이어지지 않지만, 방어적으로 다른 훅들과
+      // 같은 가드를 둔다 — usePdfViewerStore.isSpacePressed 참고.
+      if (usePdfViewerStore.getState().isSpacePressed) return;
       if (e.target !== el) return;
       if (useToolStore.getState().activeTool !== 'image') return;
 

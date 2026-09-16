@@ -94,12 +94,16 @@
   align-items: center;
   justify-content: center;
   background: var(--color-fill);
-  /* 2026-09: Ctrl+스크롤로 페이지를 확대(usePdfViewerZoom.ts, .pdf-viewer-page의
-     transform:scale)할 수 있게 되면서 hidden에서 auto로 바꿨다 — 확대된 뒤 일반 휠로
-     자연스럽게 스크롤(패닝)하기 위함. 확대 안 된 상태(scale(1))는 페이지가 정확히 이
-     영역에 맞춰지므로 스크롤바가 생기지 않아 기존 모습과 차이가 없다. */
-  overflow: auto;
-  overscroll-behavior: contain;
+  /* 요구사항(2026-09-16, "PDF 이동을 SPACE+드래그로"): 2026-09에 Ctrl+스크롤 확대와
+     함께 auto로 바꿨던 걸 다시 hidden으로 되돌렸다 — 그 네이티브 스크롤 기반 패닝
+     방식엔 "오른쪽으로만 이동되고 왼쪽으로는 안 되는" 방향성 버그가 있었다
+     (transform:scale + flex 중앙 정렬 조합에서 스크롤 오버플로가 좌우 비대칭으로
+     계산되는 크로스 브라우저 공통 결함 — canvas/pdf/usePdfViewerPan.ts 상단 주석 참고).
+     이동은 이제 canvas/pdf/usePdfViewerPan.ts(Space+드래그)와 usePdfViewerZoom.ts(일반
+     휠)가 `.pdf-viewer-page`의 transform:translate로 직접 처리한다 — 스크롤바 자체가
+     필요 없어졌으므로 hidden으로 확대된 부분을 그냥 잘라 보여주면 된다(확대 안 된
+     상태(scale(1))는 페이지가 정확히 이 영역에 맞춰지므로 기존 모습과 차이가 없다). */
+  overflow: hidden;
   padding: 12px;
 }
 
