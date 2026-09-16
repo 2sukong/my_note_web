@@ -2,28 +2,25 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 import { useToolStore } from '../../store/toolStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
-import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
-import {
-  captureAnnotationSelection,
-  captureSelectionSegments,
-  captureWordAtPoint,
-  clearNativeSelection,
-} from '../../objects/text/selectionCapture';
+import { captureSelectionSegments, clearNativeSelection } from '../../objects/text/selectionCapture';
 
 /**
- * PDF 오버레이 위 형광펜/주석 도구(Phase 6) — canvas/interaction/useTextSelectionTools.ts의
+ * PDF 오버레이 위 형광펜 도구(Phase 6) — canvas/interaction/useTextSelectionTools.ts의
  * pointerup-커밋 뼈대를 그대로 따르되, v1 스코프 축소로 실시간 드래그 미리보기
  * (highlightDragStore/HighlightDragPreview.tsx)는 옮기지 않았다 — 드래그 도중에는
  * 브라우저 네이티브 파란 선택 음영이 그대로 보이다가, 손을 떼는 순간(pointerup)에만
- * 실제 하이라이트/주석이 생긴다. captureSelectionSegments()/captureAnnotationSelection()은
- * document 전역에서 [data-line-id]/[data-annotation-id]를 찾는 순수 함수라(§ 파일 상단
- * 주석) 메인 캔버스 쪽과 완전히 동일하게 재사용할 수 있다 — PdfOverlayTextView.tsx/
- * PdfOverlayAnnotationNote.tsx가 같은 data-* 속성 규약을 그대로 따르기 때문이다.
+ * 실제 하이라이트가 생긴다. captureSelectionSegments()는 document 전역에서
+ * [data-line-id]를 찾는 순수 함수라(§ 파일 상단 주석) 메인 캔버스 쪽과 완전히 동일하게
+ * 재사용할 수 있다 — PdfOverlayTextView.tsx가 같은 data-* 속성 규약을 그대로 따르기
+ * 때문이다.
  *
- * toolStore(활성 도구/색/폰트 기본값)는 메인 캔버스와 완전히 같은 전역 store를
- * 공유한다(v3 §2-7: "PDF 오버레이 필기는 기존 Toolbar/toolStore를 그대로 재사용하고
- * PDF 전용 툴바를 새로 만들지 않는다"는 확정 요구사항) — 여기서 새로 만들 값은
- * usePdfOverlaySelectionStore(어떤 객체가 선택/편집 중인지)뿐이다.
+ * 요구사항(2026-09-16, "PDF에서 주석 사용 기능 삭제"): 원래 이 훅은 형광펜과 주석
+ * (annotation) 도구를 함께 처리했었다(그래서 이름이 SelectionTools) — 버그가 많다는
+ * 피드백으로 주석 생성 분기를 완전히 없앴다. 아래 handlePointerUp의 주석 참고.
+ *
+ * toolStore(활성 도구/색 기본값)는 메인 캔버스와 완전히 같은 전역 store를 공유한다
+ * (v3 §2-7: "PDF 오버레이 필기는 기존 Toolbar/toolStore를 그대로 재사용하고 PDF 전용
+ * 툴바를 새로 만들지 않는다"는 확정 요구사항).
  *
  * 버그 수정(2026-08, 형광펜/주석이 전혀 안 만들어지던 문제): pageWidth/pageHeight를
  * 이 훅의 좌표 계산에는 안 쓰지만(네이티브 selection 기반이라 픽셀 변환이 필요 없다),
@@ -44,43 +41,22 @@ export function useOverlayTextSelectionTools(
     const el = containerRef.current;
     if (!el || pageWidth <= 0 || pageHeight <= 0) return;
 
-    const handlePointerUp = (e: PointerEvent) => {
-      const { activeTool, highlightColor, highlightEraserActive, annotationColor, annotationFontFamily, annotationFontSize } =
-        useToolStore.getState();
-      if (activeTool === 'select' || activeTool === 'text') return;
-
-      // 형광펜 도구는 "본문 줄" 선택인지 "Annotation 자기 자신의 텍스트" 선택인지 먼저
-      // 구분한다 — captureSelectionSegments()가 항상 빈 배열을 주는 경우(Annotation의
-      // contentEditable div는 data-line-id가 없음)라서 이 분기를 먼저 둬야 한다.
-      if (activeTool === 'highlight') {
-        const annotationSeg = captureAnnotationSelection();
-        if (annotationSeg) {
-          if (highlightEraserActive) {
-            usePdfOverlayStore
-              .getState()
-              .eraseAnnotationHighlightRange(
-                annotationSeg.objectId,
-                annotationSeg.lineId,
-                annotationSeg.annotationId,
-                annotationSeg.start,
-                annotationSeg.end,
-              );
-          } else {
-            usePdfOverlayStore
-              .getState()
-              .addAnnotationHighlight(
-                annotationSeg.objectId,
-                annotationSeg.lineId,
-                annotationSeg.annotationId,
-                annotationSeg.start,
-                annotationSeg.end,
-                highlightColor,
-              );
-          }
-          clearNativeSelection();
-          return;
-        }
-      }
+    const handlePointerUp = () => {
+      const { activeTool, highlightColor, highlightEraserActive } = useToolStore.getState();
+      // 요구사항(2026-09-16, "PDF에서 주석 사용 기능 삭제"): 버그가 많다는 사용자
+      // 피드백으로 PDF 오버레이의 주석(annotation) 생성 기능 자체를 없앴다 — 예전엔
+      // 여기서 activeTool==='annotation'일 때 addAnnotation을 호출하고, activeTool===
+      // 'highlight'일 때도 "Annotation 자기 자신의 텍스트" 위 형광펜(captureAnnotationSelection)을
+      // 먼저 처리했었다. 이제 이 도구가 반응하는 건 본문 줄 형광펜(아래 highlight
+      // 분기)뿐이다 — activeTool이 'annotation'이면 이 리스너는 그냥 아무 것도 하지
+      // 않는다(메인 캔버스의 주석 기능 자체는 그대로 남아있다 — 삭제 대상은 PDF
+      // 오버레이 한정). 남은 데이터 모델(TextLine.annotations, pdfOverlayStore.ts의
+      // addAnnotation류 액션)은 일부러 건드리지 않았다 — 메인 캔버스와 타입을 공유하고
+      // 있고, 텍스트 편집(줄 분할/병합) 로직이 그 필드를 계속 참조하므로 지우면 오히려
+      // 기존에 저장된 PDF 파일의 데이터가 깨질 위험이 있다. 대신 렌더링(아래
+      // PdfOverlayTextView.tsx의 PdfOverlayAnnotationNote 호출 제거)과 생성 진입점만
+      // 막아서, 사용자 눈에는 기능이 완전히 사라진 것처럼 보이게 했다.
+      if (activeTool === 'select' || activeTool === 'text' || activeTool === 'annotation') return;
 
       const segments = captureSelectionSegments();
 
@@ -92,32 +68,6 @@ export function useOverlayTextSelectionTools(
           usePdfOverlayStore.getState().addHighlightSegments(segments, highlightColor);
         }
         clearNativeSelection();
-        return;
-      }
-
-      if (activeTool === 'annotation') {
-        // 요구사항 변경(2026-09-15, 메인 캔버스 useTextSelectionTools.ts와 동일):
-        // 드래그 selection이 있으면 그걸, 없으면(그냥 클릭) 클릭 좌표 아래 단어를
-        // captureWordAtPoint로 찾아 anchor로 쓴다. 여러 줄에 걸쳐 드래그해도 anchor는
-        // 첫 세그먼트 하나로 삼는다(메인 캔버스와 동일한 관례 — 짧은 메모라는 성격상
-        // 여러 줄 앵커는 다루지 않는다).
-        const anchor = segments[0] ?? captureWordAtPoint(e.clientX, e.clientY);
-        if (!anchor) return;
-        const targetObject = usePdfOverlayStore.getState().objects[anchor.objectId];
-        if (!targetObject || targetObject.type !== 'text') return;
-
-        const annotationId = usePdfOverlayStore
-          .getState()
-          .addAnnotation(anchor.objectId, anchor.lineId, anchor.start, anchor.end, annotationColor, annotationFontFamily, annotationFontSize);
-
-        clearNativeSelection();
-        // 메인 캔버스는 interactionStore.selectFine + setMode('text-edit')로 처리하지만,
-        // 오버레이는 그 상태 머신이 없다 — 대신 부모 Text 상자를 선택 상태로 표시하고
-        // (텍스트 자체를 편집 모드로 만들지는 않는다, 방금 만든 주석 입력창에 곧바로
-        // 포커스가 가므로 그걸로 충분), 새로 만든 주석에 포커스 요청 신호만 보낸다 —
-        // PdfOverlayAnnotationNote.tsx가 이 신호를 보고 자기 자신에 focus+커서를 준다.
-        usePdfOverlaySelectionStore.getState().select(anchor.objectId);
-        usePdfOverlaySelectionStore.getState().requestAnnotationFocus(annotationId);
       }
     };
 

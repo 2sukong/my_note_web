@@ -17,9 +17,9 @@ import {
 import { focusLineAt, getCaretOffset, mergeClientRectsByLine, rangeForOffsets } from '../../objects/text/domCaret';
 import { highlightBackgroundFor } from '../../objects/text/highlightColors';
 import { useToolStore } from '../../store/toolStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
-import { PdfOverlayAnnotationNote } from './PdfOverlayAnnotationNote';
 import { PdfOverlayResizeHandles } from './PdfOverlayResizeHandles';
 import { PDF_OVERLAY_ABSOLUTE_SIZE_CALIBRATION } from '../../objects/pdf/pdfRaster';
 
@@ -58,10 +58,12 @@ const MIN_TEXT_HEIGHT = 32;
  *   ROOT_ANCHOR.
  * - 줄 사이 위/아래 화살표 이동, 여러 줄 걸친 선택 삭제/붙여쓰기 없음(각 줄이 독립된
  *   contentEditable이라 브라우저 기본 동작에 맡긴다).
- * - 주석은 (아래 PdfOverlayAnnotationNote.tsx 설명대로) 줄 바로 아래 흘러들어가는
- *   고정 위치 메모라 자유 드래그 재배치가 없다 — TextAnnotation.offsetX는 메인 앱의
- *   말풍선 레이아웃 전용 필드라 여기서는 쓰지 않는다(데이터 계약만 호환, 화면 표현은
- *   의도적으로 다름).
+ * - 주석(annotation) 기능 삭제(2026-09-16, "PDF에서 주석 사용 기능 삭제" 요구사항):
+ *   한때 이 컴포넌트가 line.annotations를 PdfOverlayAnnotationNote로 렌더링했었지만
+ *   (그 방식·이유는 이제 이 코드베이스에 없다), 버그가 많다는 피드백으로 렌더링과
+ *   생성 진입점(canvas/pdf/useOverlayTextSelectionTools.ts)을 모두 없앴다. 데이터
+ *   필드(line.annotations) 자체는 지우지 않아, 이전에 저장된 PDF의 주석은 화면에만
+ *   안 보일 뿐 조용히 남아있다.
  *
  * 리사이즈(추가 Phase, 2026-09): 폭/높이 모두 8방향 핸들로 직접 조절할 수 있다
  * (PdfOverlayResizeHandles.tsx) — objects/text/TextObjectView.tsx의 자동 높이 로직
@@ -134,20 +136,23 @@ export function PdfOverlayTextView({
   const isSelected = selectedId === object.id;
   const isEditing = editingId === object.id;
 
-  // 버그 수정(2026-08, 형광펜/주석 생성용 드래그 선택이 전혀 안 되던 문제): 이 패널
+  // 버그 수정(2026-08, 형광펜 생성용 드래그 선택이 전혀 안 되던 문제): 이 패널
   // (.pdf-viewer-panel)이 Canvas.tsx에서 .canvas-root의 자식으로 렌더링되기 때문에
   // (canvas/Canvas.css의 `.canvas-root { user-select: none; }`), 아무 것도 하지
-  // 않으면 이 줄 div도 그 user-select:none을 그대로 물려받는다 — 그러면 'highlight'/
-  // 'annotation' 도구로 이 텍스트 위를 드래그해도 브라우저 네이티브 선택 자체가 아예
-  // 생기지 않아서(captureSelectionSegments가 항상 빈 배열을 줌), 형광펜/주석을 만들
-  // 방법이 없었다(형광펜은 그 대신 페이지 배경용 직선 형광펜 훅이 대신 반응해서 "PDF
-  // 위인 것처럼" 그어진 것처럼 보였고, 주석은 아예 아무 일도 안 일어났다). 메인 캔버스의
-  // TextObjectView.tsx(1451줄 부근 주석 참고)가 정확히 같은 이유로 activeTool에 따라
-  // user-select를 켜고 끄길래 같은 패턴을 그대로 옮겼다 — 편집 중이 아니고 형광펜/주석
-  // 도구가 켜져 있을 때만 네이티브 텍스트 선택을 허용한다(select 도구일 땐 계속
-  // user-select:none을 유지해야 드래그가 "객체 이동"으로 동작한다).
+  // 않으면 이 줄 div도 그 user-select:none을 그대로 물려받는다 — 그러면 'highlight'
+  // 도구로 이 텍스트 위를 드래그해도 브라우저 네이티브 선택 자체가 아예 생기지
+  // 않아서(captureSelectionSegments가 항상 빈 배열을 줌), 형광펜을 만들 방법이
+  // 없었다(그 대신 페이지 배경용 직선 형광펜 훅이 대신 반응해서 "PDF 위인 것처럼"
+  // 그어진 것처럼 보였다). 메인 캔버스의 TextObjectView.tsx(1451줄 부근 주석 참고)가
+  // 정확히 같은 이유로 activeTool에 따라 user-select를 켜고 끄길래 같은 패턴을 그대로
+  // 옮겼다 — 편집 중이 아니고 형광펜 도구가 켜져 있을 때만 네이티브 텍스트 선택을
+  // 허용한다(select 도구일 땐 계속 user-select:none을 유지해야 드래그가 "객체 이동"으로
+  // 동작한다). 요구사항(2026-09-16, "PDF에서 주석 사용 기능 삭제"): 예전엔 'annotation'
+  // 도구도 여기 포함됐었지만, 주석 생성 자체가 없어졌으므로 뺐다 — 이제 주석 도구가
+  // 켜진 채로 PDF 텍스트를 드래그해도 아무 네이티브 선택이 뜨지 않는다(select/text
+  // 도구와 동일하게 취급).
   const activeTool = useToolStore((s) => s.activeTool);
-  const allowNativeTextSelect = !isEditing && (activeTool === 'highlight' || activeTool === 'annotation');
+  const allowNativeTextSelect = !isEditing && activeTool === 'highlight';
 
   const [highlightRectsByLine, setHighlightRectsByLine] = useState<
     Map<string, { id: string; color: string; left: number; top: number; width: number; height: number }[]>
@@ -395,6 +400,9 @@ export function PdfOverlayTextView({
 
   const handleWrapperPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // 버그 수정(2026-09-16, PDF Viewer Space+드래그 이동 도입): PdfOverlayShapeView.tsx와
+    // 같은 이유 — usePdfViewerStore.isSpacePressed 참고.
+    if (usePdfViewerStore.getState().isSpacePressed) return;
     if (useToolStore.getState().activeTool !== 'select') return;
     if (isEditing) return; // 편집 중엔 텍스트 커서 조작이 드래그보다 우선
     usePdfOverlaySelectionStore.getState().select(object.id);
@@ -526,9 +534,13 @@ export function PdfOverlayTextView({
                   }}
                 />
               </div>
-              {(line.annotations ?? []).map((a) => (
-                <PdfOverlayAnnotationNote key={a.id} objectId={object.id} lineId={line.id} annotation={a} displayScale={displayScale} />
-              ))}
+              {/* 요구사항(2026-09-16, "PDF에서 주석 사용 기능 삭제"): 버그가 많다는
+                  피드백으로 line.annotations를 더 이상 렌더링하지 않는다 — 예전엔
+                  여기서 각 annotation마다 PdfOverlayAnnotationNote를 그렸다. 데이터
+                  자체(line.annotations)는 지우지 않았다(위 useOverlayTextSelectionTools.ts의
+                  동일한 주석 참고 — 텍스트 편집 로직이 그 필드를 계속 다루고, 메인
+                  캔버스와 타입을 공유하기 때문) — 그냥 화면에 그리지 않을 뿐이라, 혹시
+                  이전에 저장된 PDF에 주석이 남아있어도 조용히 숨겨진다. */}
             </div>
           );
         })}
