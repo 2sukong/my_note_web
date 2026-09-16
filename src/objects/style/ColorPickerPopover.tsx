@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { HexColorPicker } from 'react-colorful';
 import { useRecentColorsStore } from '../../store/recentColorsStore';
 import type { RecentColorCategory } from '../../store/recentColorsStore';
+import { PlusIcon } from '../../icons/Icons';
 
 interface ColorPickerPopoverProps {
   label: string;
@@ -29,7 +30,15 @@ function isValidHex(value: string): boolean {
  *
  * react-colorful(의존성 없는 순수 클라이언트 라이브러리, 외부 네트워크 호출 없음) +
  * hex 텍스트 입력 + 카테고리별 "자주 사용하는 색상"(store/recentColorsStore.ts) 조합.
- * 트리거 버튼은 현재 색을 보여주는 작은 정사각형 스와치이고, 클릭하면 팝오버가 뜬다.
+ *
+ * 트리거 버튼 모양(요구사항 변경, 2026-09-15, 굿노트 UI 참고): 예전엔 이 버튼 자체가
+ * 현재 색으로 채워진 원(= "지금 선택된 커스텀 색" 스와치처럼 보임)이었는데, 자주 쓰는
+ * 색상 원들과 시각적으로 구분이 안 돼서 "이건 즐겨찾기가 아니라 아무 색이나 바로 고르는
+ * 버튼"이라는 게 안 드러났다. 참고 사진(굿노트)처럼 색을 채우지 않고 점선 테두리만
+ * 있는 원 + 우상단에 겹쳐진 작은 "+" 배지로 바꿔서, 클릭하면 "새 색을 고른다"는 의도를
+ * 아이콘 자체가 말해주게 했다 — 동작(클릭 시 팝오버가 뜨는 것)은 그대로, 겉모양만
+ * 변경. 배지의 "+"는 icons/Icons.tsx의 PlusIcon을 그대로 재사용해서(다른 아이콘들과
+ * 같은 stroke 굵기/currentColor 관례 유지) 앱 전체 아이콘 톤과 맞춘다.
  *
  * 색은 드래그하는 동안 실시간으로 onChange가 불려서 캔버스에 바로 반영된다(다른
  * 도구들과 동일하게 즉시 미리보기).
@@ -131,10 +140,13 @@ export function ColorPickerPopover({ label, value, onChange, category }: ColorPi
         ref={triggerRef}
         type="button"
         className="properties-color-trigger"
-        style={{ background: value }}
         title={label}
         onClick={() => setOpen((o) => !o)}
-      />
+      >
+        <span className="properties-color-trigger-badge" aria-hidden="true">
+          <PlusIcon size={7} />
+        </span>
+      </button>
       {open &&
         popoverPos &&
         createPortal(
