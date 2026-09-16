@@ -4,6 +4,7 @@ import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TextObject } 
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
 import { useLinkStore } from '../store/linkStore';
+import { collectPageLinkEntries } from '../utils/linkAnchor';
 import { useFileTreeStore } from '../storage/fileTreeStore';
 import { useHistoryStore } from '../store/historyStore';
 import { useFontStore } from '../store/fontStore';
@@ -89,12 +90,18 @@ export function PropertiesPanel() {
   const deselect = useInteractionStore((s) => s.deselect);
   const objectsRecord = useObjectsStore((s) => s.objects);
   const links = useLinkStore((s) => s.links);
+  const currentPageId = useFileTreeStore((s) => s.currentPageId);
   const activeTool = useToolStore((s) => s.activeTool);
   const setTool = useToolStore((s) => s.setTool);
 
   if (fineSelection?.kind === 'link') {
     const link = links[fineSelection.linkId];
     if (!link) return null;
+    // 요구사항(2026-09-16): 이 페이지(main 캔버스)에 걸린 링크 전체를 함께 보여준다 —
+    // canvas/LinkMarkersLayer.tsx가 마커를 그리는 것과 같은 기준(surface==='page' &&
+    // pageId===currentPageId)으로 골라서, "지금 이 화면에 보이는 마커들"과 "목록"이
+    // 항상 일치하게 한다.
+    const pageLinks = currentPageId ? collectPageLinkEntries(links, { pageId: currentPageId }) : [];
     return (
       <PanelShell title="링크" onClose={deselect} panelKey={`link:${fineSelection.linkId}`}>
         <LinkSection
@@ -105,6 +112,9 @@ export function PropertiesPanel() {
             void useLinkStore.getState().removeLink(fineSelection.linkId);
             deselect();
           }}
+          pageLinks={pageLinks}
+          selectedLinkId={fineSelection.linkId}
+          onSelectLink={(linkId) => useInteractionStore.getState().selectFine({ kind: 'link', linkId, id: linkId })}
         />
       </PanelShell>
     );
@@ -301,6 +311,20 @@ export function PropertiesPanel() {
       return (
         <PanelShell title="프레임" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <FrameDefaultsSection />
+        </PanelShell>
+      );
+    }
+    // 요구사항(2026-09-16, "메뉴의 링크 아이콘을 클릭해도 사이드바가 열렸으면"): 다른
+    // 도구(텍스트/형광펜/주석/화살표/사각형/프레임)와 완전히 같은 관례 — 선택된 것이
+    // 없어도 활성 도구가 'link'면 곧바로 그 도구의 기본값 패널을 연다. 링크 도구는
+    // 색상 등 "기본값"이 없으므로, 대신 "이 페이지의 링크" 목록(위 fineSelection
+    // kind:'link' 분기의 LinkSection이 보여주는 것과 같은 목록)과 사용법 안내를
+    // 보여준다 — 아직 아무 링크도 선택하지 않은 상태에서도 전체 목록을 훑어보고
+    // 클릭해서 바로 그 링크를 선택할 수 있다.
+    if (activeTool === 'link') {
+      return (
+        <PanelShell title="링크" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
+          <LinkDefaultsSection />
         </PanelShell>
       );
     }
@@ -1711,11 +1735,25 @@ export function LinkSection({
   targetIsPdf,
   targetPageIndex,
   onDelete,
+  pageLinks,
+  selectedLinkId,
+  onSelectLink,
 }: {
   targetPageId: string;
   targetIsPdf: boolean;
   targetPageIndex?: number;
   onDelete: () => void;
+  /** 요구사항(2026-09-16, "링크 아이콘 클릭 시 현재 페이지의 모든 링크 목록 표시"):
+   * 이 링크가 있는 페이지(또는 PDF 페이지)에 걸린 링크 전체 — collectPageLinkEntries가
+   * 만들어 넘긴다. 없으면(구 호출부와의 하위 호환) 목록 자체를 렌더링하지 않는다. */
+  pageLinks?: Array<{ id: string; label: string }>;
+  /** 지금 선택된(=이 패널을 열게 한) 링크 id — 목록에서 그 항목을 강조 표시하는 데
+   * 쓴다. */
+  selectedLinkId?: string;
+  /** 목록의 다른 항목을 클릭했을 때 그 링크로 선택을 옮긴다(이동은 하지 않는다 —
+   * 마커 좌클릭의 "이동"과 달리 목록은 훑어보기 목적이라 화면이 갑자기 옮겨가지
+   * 않는 편이 안전하다). */
+  onSelectLink?: (linkId: string) => void;
 }) {
   const targetPageName = useFileTreeStore((s) => s.pages[targetPageId]?.name) ?? '(삭제된 페이지)';
   const destinationLabel = targetIsPdf
@@ -1731,6 +1769,72 @@ export function LinkSection({
       <button type="button" className="properties-link-delete-btn" onClick={onDelete}>
         링크 삭제
       </button>
+      {pageLinks && <PageLinksList pageLinks={pageLinks} selectedLinkId={selectedLinkId} onSelectLink={onSelectLink} />}
+    </>
+  );
+}
+
+/**
+ * 위 LinkSection의 "이 페이지의 링크" 목록 부분을 분리했다(2026-09-16, "메뉴의 링크
+ * 아이콘 클릭 시에도 사이드바가 열렸으면" 요구사항 대응) — 이제 이 목록이 두 군데서
+ * 필요해졌다: (1) 기존처럼 특정 링크를 선택했을 때(LinkSection 안, "이동 위치"/"링크
+ * 삭제"와 함께), (2) 아직 아무 링크도 선택하지 않았지만 🔗 도구 자체가 활성화됐을 때
+ * (아래 LinkDefaultsSection, 도구만 켜고 목록부터 훑어보고 싶을 수 있으므로). emptyHint를
+ * 주면 목록이 비었을 때 그 안내 문구를 대신 보여준다 — LinkSection 쪽은 항상 선택된
+ * 링크 자신이 최소 하나는 들어있어 비는 경우가 없으므로 emptyHint를 넘기지 않는다.
+ */
+function PageLinksList({
+  pageLinks,
+  selectedLinkId,
+  onSelectLink,
+  emptyHint,
+}: {
+  pageLinks: Array<{ id: string; label: string }>;
+  selectedLinkId?: string;
+  onSelectLink?: (linkId: string) => void;
+  emptyHint?: string;
+}) {
+  if (pageLinks.length === 0) {
+    return emptyHint ? <div className="properties-link-list-empty">{emptyHint}</div> : null;
+  }
+  return (
+    <div className="properties-link-list">
+      <div className="properties-link-list-title">이 페이지의 링크 ({pageLinks.length})</div>
+      {pageLinks.map((entry) => (
+        <button
+          key={entry.id}
+          type="button"
+          className={entry.id === selectedLinkId ? 'properties-link-list-item is-active' : 'properties-link-list-item'}
+          title={entry.label}
+          onClick={() => onSelectLink?.(entry.id)}
+        >
+          {entry.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 요구사항(2026-09-16, "메뉴의 링크 아이콘을 클릭해도 사이드바가 열렸으면"): 다른
+ * *DefaultsSection들(TextDefaultsSection 등)과 같은 관례로 자체 hook만으로 동작한다.
+ * 링크 도구는 색상 등 조절할 "기본값"이 없으므로, 대신 사용법 안내 한 줄과 이 페이지의
+ * 링크 목록을 보여준다 — 목록 항목을 클릭하면 fineSelection을 그 링크로 옮겨서(위
+ * fineSelection kind:'link' 분기로 자연스럽게 전환) "이동 위치"/"링크 삭제"가 있는
+ * 상세 패널이 이어서 열린다.
+ */
+function LinkDefaultsSection() {
+  const links = useLinkStore((s) => s.links);
+  const currentPageId = useFileTreeStore((s) => s.currentPageId);
+  const pageLinks = currentPageId ? collectPageLinkEntries(links, { pageId: currentPageId }) : [];
+  return (
+    <>
+      <div className="properties-link-tool-hint">캔버스의 빈 곳이나 객체를 클릭해 링크의 시작점을 지정하세요.</div>
+      <PageLinksList
+        pageLinks={pageLinks}
+        onSelectLink={(linkId) => useInteractionStore.getState().selectFine({ kind: 'link', linkId, id: linkId })}
+        emptyHint="아직 이 페이지에 링크가 없습니다."
+      />
     </>
   );
 }

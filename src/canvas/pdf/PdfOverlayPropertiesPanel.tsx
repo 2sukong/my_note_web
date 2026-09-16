@@ -1,7 +1,9 @@
 import type { ArrowObject, ShapeObject, TextObject } from '../../types/object';
 import { usePdfOverlayStore } from '../../store/pdfOverlayStore';
 import { usePdfOverlaySelectionStore } from '../../store/pdfOverlaySelectionStore';
+import { usePdfViewerStore } from '../../store/pdfViewerStore';
 import { useLinkStore } from '../../store/linkStore';
+import { collectPageLinkEntries } from '../../utils/linkAnchor';
 import { PanelShell, ArrowSection, RectangleSection, LinkSection } from '../PropertiesPanel';
 import { PdfOverlayTextSection } from './PdfOverlayTextSection';
 
@@ -29,6 +31,8 @@ export function PdfOverlayPropertiesPanel() {
   const deselect = () => usePdfOverlaySelectionStore.getState().select(null);
   const objects = usePdfOverlayStore((s) => s.objects);
   const links = useLinkStore((s) => s.links);
+  const openPdfId = usePdfViewerStore((s) => s.openPdfId);
+  const currentPageIndex = usePdfViewerStore((s) => s.currentPageIndex);
 
   // 요구사항(내부 하이퍼링크, 링크 삭제 UX): PDF 오버레이 쪽 링크 마커 선택도 메인
   // 캔버스(PropertiesPanel.tsx의 fineSelection kind:'link')와 완전히 같은 LinkSection을
@@ -37,6 +41,11 @@ export function PdfOverlayPropertiesPanel() {
   if (selectedLinkId) {
     const link = links[selectedLinkId];
     if (!link) return null;
+    // 요구사항(2026-09-16): 이 PDF의 지금 보고 있는 페이지에 걸린 링크 전체를 함께
+    // 보여준다 — canvas/pdf/PdfOverlayLinkMarkersLayer.tsx가 마커를 그리는 것과 같은
+    // 기준(surface==='pdf' && pdfId===openPdfId && pageIndex===currentPageIndex)으로
+    // 골라서, "지금 이 페이지에 보이는 마커들"과 "목록"이 항상 일치하게 한다.
+    const pageLinks = openPdfId ? collectPageLinkEntries(links, { pdfId: openPdfId, pageIndex: currentPageIndex }) : [];
     return (
       <PanelShell
         title="링크"
@@ -51,6 +60,9 @@ export function PdfOverlayPropertiesPanel() {
             void useLinkStore.getState().removeLink(selectedLinkId);
             usePdfOverlaySelectionStore.getState().selectLink(null);
           }}
+          pageLinks={pageLinks}
+          selectedLinkId={selectedLinkId}
+          onSelectLink={(linkId) => usePdfOverlaySelectionStore.getState().selectLink(linkId)}
         />
       </PanelShell>
     );

@@ -96,6 +96,68 @@
   background: rgba(229, 72, 77, 0.08);
 }
 
+/* 요구사항(2026-09-16, "링크 아이콘 클릭 시 오른쪽 사이드바에 현재 페이지의 모든
+   링크 목록 표시"): "링크 삭제" 버튼 아래에 이어지는 이 페이지(또는 PDF 페이지)의
+   전체 링크 목록. 각 항목은 클릭 가능한 행 버튼이고, 지금 선택된 링크는 강조색으로
+   표시한다. */
+.properties-link-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.properties-link-list-title {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  padding: 0 2px 2px;
+}
+
+.properties-link-list-item {
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.properties-link-list-item:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.properties-link-list-item.is-active {
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+/* 요구사항(2026-09-16, "메뉴의 링크 아이콘을 클릭해도 사이드바가 열렸으면"):
+   PropertiesPanel.tsx의 LinkDefaultsSection(선택된 링크 없이 🔗 도구만 활성화된 상태)
+   상단에 뜨는 사용법 한 줄 안내 — 다른 *DefaultsSection들의 안내문과 같은 톤. */
+.properties-link-tool-hint {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+/* PageLinksList가 비었을 때(아직 이 페이지에 링크가 하나도 없을 때) emptyHint로 대신
+   보여주는 안내문 — .properties-link-list와 달리 목록 자체가 없으므로 구분선 없이
+   위 안내문과 자연스럽게 이어지도록 margin-top만 준다. */
+.properties-link-list-empty {
+  margin-top: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
 /* Phase 8(부분 서식): 텍스트 편집 중 드래그로 구간을 선택했을 때, 이 패널의 컨트롤이
    객체 전체가 아니라 그 구간에만 적용된다는 걸 알려주는 작은 안내문. */
 .properties-range-hint {
