@@ -143,8 +143,10 @@ export function ColorPickerPopover({ label, value, onChange, category }: ColorPi
         title={label}
         onClick={() => setOpen((o) => !o)}
       >
+        {/* 배지 축소(2026-09-18)에 맞춰 아이콘도 7→5로 같이 줄임 — 10px 배지 안에서
+            여백이 그대로 유지되도록(기존 13px 배지에서 7px 아이콘이던 비율과 동일). */}
         <span className="properties-color-trigger-badge" aria-hidden="true">
-          <PlusIcon size={7} />
+          <PlusIcon size={5} />
         </span>
       </button>
       {open &&
