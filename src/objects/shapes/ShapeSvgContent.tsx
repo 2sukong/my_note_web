@@ -22,6 +22,21 @@ export interface ShapeSvgContentProps {
   curveOffset?: number;
   /** 사각형 모서리를 둥글게. */
   rounded?: boolean;
+  /**
+   * 요구사항(2026-09-17, 화살표 클릭 판정 넓히기): 화살표(type='arrow')를 실제 눈에
+   * 보이는 선보다 훨씬 넉넉하게 클릭/드래그할 수 있도록, 같은 경로(직선 또는 곡선)를
+   * 따라가는 투명한 "히트 전용" stroke를 하나 더 깔아둔다. 로컬(박스) 좌표 단위이고,
+   * 호출부(ShapeView.tsx)가 화면 기준 고정 px를 zoom으로 나눠서 넘긴다 — 그래야
+   * 확대/축소와 무관하게 항상 같은 화면상 두께로 느껴진다. 특히 화살표를 정확히
+   * 수평/수직으로 그으면(smartGuides.ts의 축 스냅) box의 width 또는 height가 0이 돼서
+   * 기존 "박스 전체가 히트 영역" 설계가 사실상 무력화되는 문제(클릭 가능한 두께가
+   * MIN_VISUAL인 0.5px 수준으로 쪼그라듦)가 있었는데, 이 값을 주면 그 경우에도 항상
+   * 일정한 화면 두께의 클릭 영역이 보장된다. undefined/0이면 기존과 완전히 동일(히트
+   * 전용 stroke를 아예 그리지 않음) — DrawPreview.tsx/PdfOverlayShapeView.tsx/
+   * PdfOverlayShapeDraftLayer.tsx 등 이 prop을 넘기지 않는 다른 호출부는 전혀
+   * 영향받지 않는다.
+   */
+  hitStrokeWidth?: number;
 }
 
 /** 0-크기 대비, 실제 저장값은 건드리지 않고 렌더링에서만 보정.
@@ -86,6 +101,7 @@ export function ShapeSvgContent({
   lineStyle = 'solid',
   rounded,
   curveOffset,
+  hitStrokeWidth,
 }: ShapeSvgContentProps) {
   const w = Math.max(width, MIN_VISUAL);
   const h = Math.max(height, MIN_VISUAL);
@@ -128,6 +144,19 @@ export function ShapeSvgContent({
 
   return (
     <>
+      {!!hitStrokeWidth && (
+        // 클릭 판정 전용 — 화면에는 안 보이지만(stroke=transparent) 훨씬 두꺼운
+        // 폭으로 같은 경로를 따라가며 pointerEvents:'stroke'로 클릭/드래그를 받는다.
+        // 시각적 렌더링(아래 <path>/<line>, 화살촉)은 전혀 안 건드린다.
+        <path
+          d={control ? `M ${p1.x} ${p1.y} Q ${control.x} ${control.y} ${p2.x} ${p2.y}` : `M ${p1.x} ${p1.y} L ${p2.x} ${p2.y}`}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={hitStrokeWidth}
+          strokeLinecap="round"
+          style={{ pointerEvents: 'stroke' }}
+        />
+      )}
       {control ? (
         <path
           d={`M ${p1.x} ${p1.y} Q ${control.x} ${control.y} ${p2.x} ${p2.y}`}

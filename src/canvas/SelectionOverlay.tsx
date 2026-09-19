@@ -7,6 +7,7 @@ import type { Box, ResizeHandle } from './interaction/resizeMath';
 import { useObjectResize } from './interaction/useObjectResize';
 import { useGroupResize } from './interaction/useGroupResize';
 import { useArrowCurveDrag } from './interaction/useArrowCurveDrag';
+import { useArrowEndpointDrag } from './interaction/useArrowEndpointDrag';
 import { localEndpoints, curveMidpoint } from '../objects/shapes/shapeGeometry';
 import { useImageCropStore } from '../store/imageCropStore';
 
@@ -23,6 +24,15 @@ import { useImageCropStore } from '../store/imageCropStore';
  * 선택 객체들의 union bounding box 하나에 점선 테두리 + 8방향 handle을 추가로 그려서
  * (useGroupResize.ts) 전체를 한 번에 리사이즈할 수 있게 한다. 잠긴 객체는 이 union
  * box와 handle 모두에서 제외된다(이동과 동일한 규칙).
+ *
+ * 요구사항(PowerPoint 스타일 화살표 끝점 조절, 2026-09-17): 화살표(type==='arrow')는
+ * 단일 선택이어도 사각형 바운딩 박스 테두리와 8방향 사각 핸들을 그리지 않는다 —
+ * 대신 실제 두 끝점(p1=꼬리, p2=머리) 위치에만 원형 핸들을 그려서(ArrowEndpointHandleDot),
+ * 각 끝점을 독립적으로 드래그해 화살표의 길이/방향을 바꿀 수 있게 한다
+ * (useArrowEndpointDrag.ts). 중간 곡률 핸들(ArrowCurveHandleDot, 주황색)은 기존 그대로
+ * 유지한다. 일반 도형(rectangle/text/image/frame)의 8방향 리사이즈는 전혀 건드리지
+ * 않았고, 다중 선택 시의 group union box(8방향 핸들)도 화살표 여부와 무관하게 기존 그대로다
+ * (여러 개를 한 번에 리사이즈할 때는 PowerPoint도 개별 끝점이 아니라 박스로 다룬다).
  */
 export function SelectionOverlay() {
   const selectedIds = useInteractionStore((s) => s.selectedIds);
@@ -76,6 +86,9 @@ export function SelectionOverlay() {
         // 이동/삭제와 마찬가지로 크기조절도 막혀야 하므로, 핸들이 아예 없으면
         // useObjectResize 쪽에 별도 가드를 두지 않아도 자연히 막힌다.
         const showHandlesForThis = showHandles && !object.locked;
+        // 화살표는 사각형 바운딩 박스가 아니라 끝점 핸들로 조절하므로, 이 객체의
+        // 테두리 자체를 그리지 않는다(요구사항: "기존의 사각형 바운딩 박스는 제거").
+        const isArrow = object.type === 'arrow';
 
         return (
           <div
@@ -86,12 +99,13 @@ export function SelectionOverlay() {
               top: box.y,
               width: box.width,
               height: box.height,
-              border: `${borderWidth}px solid #4f8cff`,
+              border: isArrow ? 'none' : `${borderWidth}px solid #4f8cff`,
               pointerEvents: 'none',
               zIndex: 9999, // 객체 zIndex와 무관하게 선택 오버레이는 항상 최상단
             }}
           >
             {showHandlesForThis &&
+              !isArrow &&
               handleList.map((handle) => (
                 <ResizeHandleDot
                   key={handle}
@@ -104,13 +118,31 @@ export function SelectionOverlay() {
                 />
               ))}
             {showHandlesForThis && object.type === 'arrow' && (
-              <ArrowCurveHandleDot
-                objectId={object.id}
-                object={object}
-                box={box}
-                size={HANDLE_SCREEN_SIZE / zoom}
-                borderWidth={borderWidth}
-              />
+              <>
+                <ArrowEndpointHandleDot
+                  endpoint="p1"
+                  objectId={object.id}
+                  object={object}
+                  box={box}
+                  size={HANDLE_SCREEN_SIZE / zoom}
+                  borderWidth={borderWidth}
+                />
+                <ArrowEndpointHandleDot
+                  endpoint="p2"
+                  objectId={object.id}
+                  object={object}
+                  box={box}
+                  size={HANDLE_SCREEN_SIZE / zoom}
+                  borderWidth={borderWidth}
+                />
+                <ArrowCurveHandleDot
+                  objectId={object.id}
+                  object={object}
+                  box={box}
+                  size={HANDLE_SCREEN_SIZE / zoom}
+                  borderWidth={borderWidth}
+                />
+              </>
             )}
           </div>
         );
@@ -212,6 +244,56 @@ function GroupResizeHandleDot({
         border: `${borderWidth}px solid #4f8cff`,
         borderRadius: 2,
         cursor: pos.cursor,
+        pointerEvents: 'auto',
+        touchAction: 'none',
+      }}
+    />
+  );
+}
+
+/**
+ * 화살표 전용 끝점(꼬리/머리) 조절 핸들. PowerPoint의 화살표 선택 UI를 참고해,
+ * 사각형 리사이즈 핸들(ResizeHandleDot) 대신 실제 선이 지나가는 두 끝점에만
+ * 원형 핸들을 그린다 — 드래그하면 그 끝점만 독립적으로 움직여 길이/방향이 바뀐다
+ * (useArrowEndpointDrag.ts). 색/톤은 일반 리사이즈 핸들과 동일한 파란 계열(#4f8cff)로
+ * 맞춰서 "박스를 리사이즈하는 핸들"과 같은 성격(크기/위치 조절)임을 시각적으로
+ * 유지하되, 모양만 원형으로 구분한다 — 곡률 조절용 주황 핸들(ArrowCurveHandleDot)과는
+ * 색으로 명확히 구분된다.
+ */
+function ArrowEndpointHandleDot({
+  endpoint,
+  objectId,
+  object,
+  box,
+  size,
+  borderWidth,
+}: {
+  endpoint: 'p1' | 'p2';
+  objectId: string;
+  object: ArrowObject;
+  box: Box;
+  size: number;
+  borderWidth: number;
+}) {
+  const flipY = !!object.flipY;
+  const reverseArrow = !!object.reverseArrow;
+  const { p1, p2 } = localEndpoints(box.width, box.height, flipY, reverseArrow);
+  const point = endpoint === 'p1' ? p1 : p2;
+  const drag = useArrowEndpointDrag(objectId, box, endpoint, flipY, reverseArrow);
+
+  return (
+    <div
+      {...drag}
+      style={{
+        position: 'absolute',
+        left: point.x - size / 2,
+        top: point.y - size / 2,
+        width: size,
+        height: size,
+        background: '#ffffff',
+        border: `${borderWidth}px solid #4f8cff`,
+        borderRadius: '50%',
+        cursor: 'move',
         pointerEvents: 'auto',
         touchAction: 'none',
       }}
