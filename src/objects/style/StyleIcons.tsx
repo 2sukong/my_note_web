@@ -180,6 +180,26 @@ export function EraserIcon({ active }: { active: boolean }) {
   );
 }
 
+/** 요구사항(표 그리기 모드 아이콘): 표 편집(TableSection)의 '그리기' 토글 —
+ * 다른 Tile 아이콘(EraserIcon 등)과 같은 24px 뷰박스/두 톤 관례를 따르는 펜촉
+ * 실루엣. active일 때 EraserIcon과 동일하게 몸통을 옅게 채운다. */
+export function TableDrawIcon({ active }: { active: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18">
+      <path
+        d="M15.4 5.3 18.7 8.6 8.9 18.4 4.8 19.2 5.6 15.1z"
+        fill={active ? STROKE : '#fff'}
+        fillOpacity={active ? 0.18 : 1}
+        stroke={STROKE}
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+      <path d="M13.5 7.2 16.8 10.5" stroke={STROKE} strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** 요구사항(프레임 크기 프리셋 카드 아이콘화, 2026-09-08): 기존엔 "A4"/"정사각형"/
  * "와이드" 텍스트 버튼이었으나, 다른 회색 카드(−/+ 스테퍼 등)와 폭을 26px로
  * 맞추면서 "정사각형" 같은 4음절 라벨은 그 폭에 텍스트로 들어갈 수 없어 다른

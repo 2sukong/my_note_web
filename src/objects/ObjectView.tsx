@@ -11,6 +11,8 @@ import { TextObjectView } from './text/TextObjectView';
 import { ImageObjectView } from './image/ImageObjectView';
 import { FrameObjectView } from './frame/FrameObjectView';
 import { ShapeView } from './shapes/ShapeView';
+import { TableObjectView } from './table/TableObjectView';
+import { useTableEditStore } from '../store/tableEditStore';
 
 interface ObjectViewProps {
   object: CanvasObject;
@@ -72,13 +74,32 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
   // 타입에 대해 drag 핸들러를 아예 붙이지 않는다. 실제 테두리/라벨 전용 드래그는
   // FrameObjectView.tsx가 자기 자신의 useObjectDrag 인스턴스로 별도 처리한다.
   const isFrame = object.type === 'frame';
+  // 요구사항(표를 먼저 선택해야 그리기/지우개 가능): 이 표가 지금 "편집 모드"(더블클릭으로
+  // 들어감 — objects/table/TableObjectView.tsx)에 있으면 generic drag를 붙이지 않는다.
+  // Frame과 같은 이유 — 편집 모드 동안엔 TableObjectView 자신이 그리기/지우개/셀 범위
+  // 드래그·contentEditable 클릭을 직접 처리해야 하므로, 이 wrapper가 먼저 pointerdown을
+  // 가로채 객체 이동으로 처리해버리면 안 된다. 편집 모드가 아닐 때는 다른 객체(Image 등)와
+  // 동일하게 이 wrapper의 이동/리사이즈 인프라를 그대로 쓴다.
+  const editingTableId = useTableEditStore((s) => s.editingTableId);
+  const isTableEditing = object.type === 'table' && editingTableId === object.id;
+  // 버그 수정(표 셀 형광펜/주석): 표는 objects/table/TableObjectView.tsx의
+  // allowNativeTextSelect가 "편집 모드로 들어가지 않아도" 형광펜/주석 도구가 켜져
+  // 있으면 바로 셀 텍스트를 드래그 선택할 수 있게 해준다 — 그런데 이 wrapper의
+  // skipDrag는 isTableEditing(더블클릭 편집 모드)만 알고 있어서, 편집 모드가 아닌
+  // 표 위에서 형광펜 드래그를 시작하면 이 wrapper가 여전히 generic drag 핸들러를
+  // 붙인 채였다. 그 결과 셀 텍스트는 정상적으로 선택되면서도 pointerdown이 동시에
+  // "표 이동"으로도 해석되어 표 전체가 딸려 움직이는 회귀가 생겼다. isTextSelectMode와
+  // 정확히 같은 원리로, 표 타입에 대해서도 형광펜/주석 도구가 활성화돼 있으면(편집
+  // 모드 여부와 무관하게) drag 핸들러 자체를 떼어 pointerdown이 그대로 브라우저
+  // 기본 텍스트 선택으로 이어지게 한다.
+  const isTableTextSelectMode = object.type === 'table' && (activeTool === 'highlight' || activeTool === 'annotation');
   // 요구사항(이미지 삽입 확장, 2026-09): '이미지' 도구가 활성화된 동안엔 다른
   // 일회용 도구들(isDrawPassthrough)과 동일하게 기존 객체 위에서 select+drag가
   // 시작되면 안 된다 — 그래야 pointerdown이 먼저 그 객체를 선택해버리는 부작용 없이,
   // 아래 handleObjectClick이 깨끗하게 "이 자리에 이미지 삽입"만 처리한다. Frame은
   // 원래도 이 wrapper의 drag 대상이 아니므로(isFrame) 영향 없음.
   const isImagePlacementMode = activeTool === 'image';
-  const skipDrag = isTextEditing || isTextSelectMode || isImageHighlightMode || isDrawPassthrough || isImagePlacementMode || isFrame || isSpacePressed;
+  const skipDrag = isTextEditing || isTextSelectMode || isTableTextSelectMode || isImageHighlightMode || isDrawPassthrough || isImagePlacementMode || isFrame || isTableEditing || isSpacePressed;
   const drag = useObjectDrag(object.id);
 
   const style: CSSProperties = {
@@ -94,7 +115,7 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
     // 도형을 그리는 중이므로) 같은 이유로 'move'가 아니라 'default'를 보여준다.
     cursor: isTextEditing
       ? 'text'
-      : isTextSelectMode
+      : isTextSelectMode || isTableTextSelectMode
         ? 'text'
         : isImageHighlightMode
           ? 'crosshair'
@@ -104,7 +125,7 @@ export function ObjectView({ object, isSpacePressed }: ObjectViewProps) {
           // (선택 자체는 여전히 가능하므로 pointer-events는 그대로 둔다).
           : object.locked
             ? 'not-allowed'
-            : isFrame || isDrawPassthrough || isImagePlacementMode
+            : isFrame || isDrawPassthrough || isImagePlacementMode || isTableEditing
               ? 'default'
               : 'move',
     touchAction: 'none',
@@ -181,6 +202,8 @@ function renderContent(object: CanvasObject) {
       return <ImageObjectView object={object} />;
     case 'frame':
       return <FrameObjectView object={object} />;
+    case 'table':
+      return <TableObjectView object={object} />;
     case 'arrow':
     case 'rectangle':
       // Phase 6: 이 wrapper div(이미 drag 핸들러가 붙어 있음) 안을 꽉 채우는

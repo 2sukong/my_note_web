@@ -3,6 +3,7 @@ import { DEFAULT_STROKE_WIDTH } from '../objects/shapes/strokeColors';
 import { DEFAULT_FONT_FAMILY } from '../objects/text/fontOptions';
 import { LINE_HEIGHT_DEFAULT } from '../objects/text/lineSpacing';
 import { DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH } from '../objects/frame/frameDefaults';
+import { DEFAULT_TABLE_COLS, DEFAULT_TABLE_ROWS } from '../objects/table/tableDefaults';
 import type { FrameTheme } from '../objects/frame/frameStyles';
 import type { TextDefaultPreset } from './textDefaultPresetsStore';
 import { useLinkDraftStore } from './linkDraftStore';
@@ -54,6 +55,7 @@ export type ToolId =
   | 'image'
   | 'arrow'
   | 'rectangle'
+  | 'table'
   | 'link';
 
 export const SHAPE_TOOL_IDS: ToolId[] = ['arrow', 'rectangle'];
@@ -134,6 +136,16 @@ interface ToolState {
   /** frameCenterFold가 true일 때 접선이 세로/가로 어느 쪽인지 — FrameObject.foldAxis와
    * 같은 의미(objects/types/object.ts 참고). */
   frameFoldAxis: 'vertical' | 'horizontal';
+  /** 요구사항(표 만들기): 툴바 '표' 버튼의 격자 피커에서 마지막으로 고른 행/열 수 —
+   * canvas/Toolbar.tsx가 setTableGridSize로 갱신하고, canvas/Canvas.tsx의
+   * handleBackgroundClick이 spawnTableAt(worldX, worldY, tableRows, tableCols)로
+   * 그대로 쓴다(frameWidth/frameHeight와 같은 관례). */
+  tableRows: number;
+  tableCols: number;
+  /** 요구사항(표 기본값): 다음에 만들 표의 기본 테두리 색/두께 —
+   * canvas/actions.ts의 spawnTableAt이 그대로 쓴다. */
+  tableStrokeColor: string;
+  tableStrokeWidth: number;
   setTool: (tool: ToolId) => void;
   setHighlightColor: (color: string) => void;
   setHighlightEraserActive: (active: boolean) => void;
@@ -161,6 +173,9 @@ interface ToolState {
   setFrameStyle: (style: FrameTheme) => void;
   setFrameCenterFold: (centerFold: boolean) => void;
   setFrameFoldAxis: (axis: 'vertical' | 'horizontal') => void;
+  setTableGridSize: (rows: number, cols: number) => void;
+  setTableStrokeColor: (color: string) => void;
+  setTableStrokeWidth: (width: number) => void;
 }
 
 export const useToolStore = create<ToolState>((set) => ({
@@ -191,6 +206,10 @@ export const useToolStore = create<ToolState>((set) => ({
   frameStyle: 'plain',
   frameCenterFold: false,
   frameFoldAxis: 'vertical',
+  tableRows: DEFAULT_TABLE_ROWS,
+  tableCols: DEFAULT_TABLE_COLS,
+  tableStrokeColor: 'black',
+  tableStrokeWidth: DEFAULT_STROKE_WIDTH,
 
   // 요구사항(형광펜 지우개): 형광펜 도구를 벗어나면 지우개 모드도 함께 꺼서, 나중에
   // 다시 형광펜 도구로 돌아왔을 때 지우개가 켜진 채로 남아있는 것을 방지한다.
@@ -239,4 +258,7 @@ export const useToolStore = create<ToolState>((set) => ({
   setFrameStyle: (style) => set({ frameStyle: style }),
   setFrameCenterFold: (centerFold) => set({ frameCenterFold: centerFold }),
   setFrameFoldAxis: (axis) => set({ frameFoldAxis: axis }),
+  setTableGridSize: (rows, cols) => set({ tableRows: rows, tableCols: cols }),
+  setTableStrokeColor: (color) => set({ tableStrokeColor: color }),
+  setTableStrokeWidth: (width) => set({ tableStrokeWidth: width }),
 }));

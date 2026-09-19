@@ -5,6 +5,7 @@ import type { ToolId } from '../store/toolStore';
 import { useInteractionStore } from '../store/interactionStore';
 import { useTextDefaultPresetsStore } from '../store/textDefaultPresetsStore';
 import type { TextDefaultPreset } from '../store/textDefaultPresetsStore';
+import { MAX_TABLE_GRID_COLS, MAX_TABLE_GRID_ROWS } from '../objects/table/tableDefaults';
 import {
   AnnotationIcon,
   ArrowToolIcon,
@@ -15,6 +16,7 @@ import {
   LinkIcon,
   RectangleToolIcon,
   SelectIcon,
+  TableToolIcon,
   TextToolIcon,
 } from '../icons/Icons';
 
@@ -39,6 +41,7 @@ const TOOL_ICONS: Record<ToolId, React.ComponentType<{ size?: number }>> = {
   image: ImageToolIcon,
   arrow: ArrowToolIcon,
   rectangle: RectangleToolIcon,
+  table: TableToolIcon,
   link: LinkIcon,
 };
 
@@ -90,6 +93,14 @@ export function Toolbar() {
   const dragRef = useRef<ToolbarDragState | null>(null);
   const [dragPos, setDragPos] = useState<{ left: number; top: number } | null>(null);
 
+  // 요구사항(표 만들기): '표' 버튼 위에 마우스를 올리면 격자 피커가 뜬다(한글 2020의
+  // '표 만들기' 대화상자와 같은 상호작용) — 격자 칸 위를 지나가면 그 칸까지의
+  // 행수 x 열수를 미리보기로 보여주고(hover), 클릭하면 그 크기로 toolStore의
+  // tableRows/tableCols를 갱신한 뒤 '표' 도구를 활성화한다. 이후 캔버스를 한 번
+  // 클릭하면 그 자리에 표가 생긴다(Frame/Image와 같은 1회용 도구 관례 —
+  // canvas/Canvas.tsx의 handleBackgroundClick 참고).
+  const [tableHover, setTableHover] = useState<{ rows: number; cols: number } | null>(null);
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const rect = toolbarRef.current?.getBoundingClientRect();
@@ -134,6 +145,13 @@ export function Toolbar() {
     deselect();
     applyTextDefaults(preset);
     setTool('text');
+  };
+
+  const chooseTableSize = (rows: number, cols: number) => {
+    deselect();
+    useToolStore.getState().setTableGridSize(rows, cols);
+    setTool('table');
+    setTableHover(null);
   };
 
   // 요구사항(상단 메뉴 순서): 선택 / 텍스트·형광펜·주석 / 프레임·이미지 / 화살표·사각형
@@ -181,6 +199,33 @@ export function Toolbar() {
       <div className="canvas-toolbar-divider" />
       <ToolButton tool="arrow" activeTool={activeTool} label="화살표" onClick={() => selectTool('arrow')} />
       <ToolButton tool="rectangle" activeTool={activeTool} label="사각형" onClick={() => selectTool('rectangle')} />
+
+      {/* 요구사항(표 만들기): 아이콘 자체를 클릭하면 기존 사각형/화살표와 동일하게
+          마지막으로 고른(또는 기본) 크기로 '표' 도구만 켠다. hover하면 뜨는 격자
+          피커는 그 자리에서 바로 크기를 확정해 '표' 도구를 켜는 지름길이다. */}
+      <div className="canvas-toolbar-table-menu">
+        <ToolButton tool="table" activeTool={activeTool} label="표" onClick={() => selectTool('table')} />
+        <div className="canvas-toolbar-table-flyout" onMouseLeave={() => setTableHover(null)}>
+          <div className="canvas-toolbar-table-grid">
+            {Array.from({ length: MAX_TABLE_GRID_ROWS }, (_, r) =>
+              Array.from({ length: MAX_TABLE_GRID_COLS }, (_, c) => {
+                const active = tableHover ? r < tableHover.rows && c < tableHover.cols : false;
+                return (
+                  <div
+                    key={`${r}-${c}`}
+                    className={active ? 'canvas-toolbar-table-cell is-active' : 'canvas-toolbar-table-cell'}
+                    onMouseEnter={() => setTableHover({ rows: r + 1, cols: c + 1 })}
+                    onClick={() => chooseTableSize(r + 1, c + 1)}
+                  />
+                );
+              }),
+            )}
+          </div>
+          <div className="canvas-toolbar-table-label">
+            {tableHover ? `${tableHover.rows} x ${tableHover.cols}` : '표 크기 선택'}
+          </div>
+        </div>
+      </div>
 
       {/* 요구사항(내부 하이퍼링크, Phase 9): 클릭 두 번(출발지→도착지)으로 링크를
           만드는 1회용 도구 — text/frame/image와 같은 관례로 별도 그룹(구분선)에 둔다.

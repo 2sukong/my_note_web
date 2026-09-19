@@ -1,6 +1,18 @@
 import { create } from 'zustand';
 import { produceWithPatches } from 'immer';
-import type { CanvasObject, ImageHighlight, TextObject } from '../types/object';
+import type { CanvasObject, ImageHighlight, TableCell, TextObject } from '../types/object';
+import {
+  atomicRangeFor,
+  ensureColBoundary,
+  ensureRowBoundary,
+  equalizeRange,
+  hitTestBorder,
+  mergeCells,
+  remapCellsAfterColInsert,
+  remapCellsAfterRowInsert,
+  splitCellsAtCol,
+  splitCellsAtRow,
+} from '../objects/table/tableGeometry';
 import type { TextAnnotation, TextHighlight, TextLine } from '../objects/text/indentation/types';
 import {
   createRangeId,
@@ -24,7 +36,7 @@ function now(): number {
 /** frameId를 가질 수 있는 객체 타입인지(Frame 자신은 제외). moveObjectTo/removeObject(s)의
  * cascade에서 공통으로 쓴다. */
 function hasFrameId(obj: CanvasObject): obj is CanvasObject & { frameId?: string | null } {
-  return obj.type === 'text' || obj.type === 'image' || obj.type === 'arrow' || obj.type === 'rectangle';
+  return obj.type === 'text' || obj.type === 'image' || obj.type === 'arrow' || obj.type === 'rectangle' || obj.type === 'table';
 }
 
 /** addHighlightSegments/eraseHighlightSegments가 공유하는 그룹핑: "여러 줄에 걸친
@@ -91,11 +103,59 @@ function updateLineIn(
   updater: (line: TextLine) => TextLine,
 ): void {
   const existing = draft[objectId];
-  if (!existing || existing.type !== 'text') return;
-  const idx = existing.lines.findIndex((l) => l.id === lineId);
-  if (idx === -1) return;
-  existing.lines[idx] = updater(existing.lines[idx]);
-  existing.updatedAt = now();
+  if (!existing) return;
+  if (existing.type === 'text') {
+    const idx = existing.lines.findIndex((l) => l.id === lineId);
+    if (idx === -1) return;
+    existing.lines[idx] = updater(existing.lines[idx]);
+    existing.updatedAt = now();
+    return;
+  }
+  // 요구사항(표 셀 형광펜/주석): TableObject는 자기 lines를 직접 갖지 않고 각
+  // cell.lines에 나눠 들고 있다 — 어느 cell에 속한 줄인지 찾아서 그 cell 안에서만
+  // 교체한다. text 객체와 갈라둔 이유: TableCell은 TextLine과 달리 그 자체로
+  // draft에서 바로 찾을 수 있는 최상위 배열이 아니라 cells[] 안에 중첩돼 있기
+  // 때문 — 나머지(줄 하나를 새 값으로 교체)는 완전히 같은 원리다.
+  if (existing.type === 'table') {
+    for (const cell of existing.cells) {
+      const idx = cell.lines.findIndex((l) => l.id === lineId);
+      if (idx !== -1) {
+        cell.lines[idx] = updater(cell.lines[idx]);
+        existing.updatedAt = now();
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * addHighlightSegments/eraseHighlightSegments가 공유하는 순회 헬퍼: text 객체(최상위
+ * lines)와 table 객체(각 cell.lines) 모두를 아우른다 — fn이 각 줄을 검사해서 바뀐
+ * 줄이 있으면 set()으로 그 자리에 바로 반영한다(draft 위 직접 mutate). 이 함수
+ * 하나만 두 타입을 알면, 호출부(addHighlightSegments 등)는 "이 objectId가 가진
+ * 모든 줄"이라는 개념만 다루면 되고 text/table 분기를 반복하지 않아도 된다.
+ */
+function forEachLineMut(
+  existing: CanvasObject,
+  fn: (line: TextLine, set: (next: TextLine) => void) => void,
+): void {
+  if (existing.type === 'text') {
+    for (let i = 0; i < existing.lines.length; i++) {
+      const idx = i;
+      fn(existing.lines[idx], (next) => {
+        existing.lines[idx] = next;
+      });
+    }
+  } else if (existing.type === 'table') {
+    for (const cell of existing.cells) {
+      for (let i = 0; i < cell.lines.length; i++) {
+        const idx = i;
+        fn(cell.lines[idx], (next) => {
+          cell.lines[idx] = next;
+        });
+      }
+    }
+  }
 }
 
 /**
@@ -161,6 +221,29 @@ interface ObjectsState {
   ) => void;
   /** TextObject 전용: lines 배열을 통째로 교체한다 (Enter/Backspace/anchor 갱신 등). */
   setTextLines: (id: string, lines: TextLine[]) => void;
+
+  /**
+   * 표(Table) 전용 mutator들. 좌표는 모두 "이 표의 좌상단 기준 로컬 world px"로
+   * 받는다(호출부인 canvas/interaction/useTableDrawTool.ts 등이 world→local 변환을
+   * 담당) — objects/table/tableGeometry.ts의 순수 함수를 그대로 감싼다.
+   */
+  splitTableRow: (id: string, localY: number, colFromLocal: number, colToLocal: number) => void;
+  splitTableCol: (id: string, localX: number, rowFromLocal: number, rowToLocal: number) => void;
+  /** 정확히 그 위치(localX, localY, tolerance 안)에 지울 수 있는 경계가 있으면 병합하고
+   * true를 반환한다. 없으면 아무것도 하지 않고 false(요구사항: "선 위일 때만" 지워짐 —
+   * 가장 가까운 선으로 스냅하지 않음). */
+  mergeTableBorder: (id: string, localX: number, localY: number, tolerance: number) => boolean;
+  equalizeTableRows: (id: string, fromLocal: number, toLocal: number) => void;
+  equalizeTableCols: (id: string, fromLocal: number, toLocal: number) => void;
+  updateTableCellLines: (id: string, cellId: string, lines: TextLine[]) => void;
+  /** 요구사항(표 텍스트 글꼴/크기/색상/굵기): cellIds에 담긴 셀들에만 균일하게
+   * patch를 적용한다 — PropertiesPanel.tsx의 TableSection이 '범위 선택돼 있으면
+   * 그 셀들만, 없으면 표 전체 셀'로 cellIds를 골라 넘긴다. */
+  updateTableCellsStyle: (
+    id: string,
+    cellIds: string[],
+    patch: Partial<Pick<TableCell, 'fontFamily' | 'fontSize' | 'color' | 'bold'>>,
+  ) => void;
 
   /**
    * Phase 4: 드래그로 선택된 텍스트 구간(들)에 하이라이트를 추가한다.
@@ -453,6 +536,14 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
         if (target.type === 'text' && target.height !== box.height) {
           target.manualHeight = true;
         }
+        // 요구사항(표 리사이즈): 8방향 핸들로 표 전체 크기를 바꾸면 세부 행/열
+        // 크기가 비율대로 함께 늘어나거나 줄어든다(엑셀/한글과 동일한 관례).
+        if (target.type === 'table') {
+          const scaleX = target.width > 0 ? box.width / target.width : 1;
+          const scaleY = target.height > 0 ? box.height / target.height : 1;
+          target.colSizes = target.colSizes.map((w) => w * scaleX);
+          target.rowSizes = target.rowSizes.map((h) => h * scaleY);
+        }
         target.x = box.x;
         target.y = box.y;
         target.width = box.width;
@@ -483,15 +574,96 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
         existing.updatedAt = now();
       }, `text:${id}`),
 
+    splitTableRow: (id, localY, colFromLocal, colToLocal) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const before = target.rowSizes;
+        const { rowSizes, index } = ensureRowBoundary(target.rowSizes, localY);
+        let cells: TableCell[] = target.cells;
+        if (rowSizes !== before) cells = remapCellsAfterRowInsert(cells, index);
+        const { from, to } = atomicRangeFor(target.colSizes, colFromLocal, colToLocal);
+        target.rowSizes = rowSizes;
+        target.cells = splitCellsAtRow(cells, index, from, to + 1);
+        target.updatedAt = now();
+      }, `table-split-row:${id}`),
+
+    splitTableCol: (id, localX, rowFromLocal, rowToLocal) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const before = target.colSizes;
+        const { colSizes, index } = ensureColBoundary(target.colSizes, localX);
+        let cells: TableCell[] = target.cells;
+        if (colSizes !== before) cells = remapCellsAfterColInsert(cells, index);
+        const { from, to } = atomicRangeFor(target.rowSizes, rowFromLocal, rowToLocal);
+        target.colSizes = colSizes;
+        target.cells = splitCellsAtCol(cells, index, from, to + 1);
+        target.updatedAt = now();
+      }, `table-split-col:${id}`),
+
+    mergeTableBorder: (id, localX, localY, tolerance) => {
+      const target = get().objects[id];
+      if (!target || target.type !== 'table') return false;
+      const border = hitTestBorder(target, localX, localY, tolerance);
+      if (!border) return false;
+      mutate((draft) => {
+        const t = draft[id];
+        if (!t || t.type !== 'table') return;
+        t.cells = mergeCells(t.cells, border);
+        t.updatedAt = now();
+      });
+      return true;
+    },
+
+    equalizeTableRows: (id, fromLocal, toLocal) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const { from, to } = atomicRangeFor(target.rowSizes, fromLocal, toLocal);
+        target.rowSizes = equalizeRange(target.rowSizes, from, to);
+        target.updatedAt = now();
+      }, `table-eq-row:${id}`),
+
+    equalizeTableCols: (id, fromLocal, toLocal) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const { from, to } = atomicRangeFor(target.colSizes, fromLocal, toLocal);
+        target.colSizes = equalizeRange(target.colSizes, from, to);
+        target.updatedAt = now();
+      }, `table-eq-col:${id}`),
+
+    updateTableCellLines: (id, cellId, lines) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const cell = target.cells.find((c) => c.id === cellId);
+        if (!cell) return;
+        cell.lines = lines;
+        target.updatedAt = now();
+      }, `table-cell:${id}:${cellId}`),
+
+    updateTableCellsStyle: (id, cellIds, patch) =>
+      mutate((draft) => {
+        const target = draft[id];
+        if (!target || target.type !== 'table') return;
+        const idSet = new Set(cellIds);
+        for (const cell of target.cells) {
+          if (idSet.has(cell.id)) Object.assign(cell, patch);
+        }
+        target.updatedAt = now();
+      }, `table-cell-style:${id}`),
+
     addHighlightSegments: (segments, color) =>
       mutate((draft) => {
         for (const [objectId, segsByLine] of groupSegmentsByObjectAndLine(segments)) {
           const existing = draft[objectId];
-          if (!existing || existing.type !== 'text') continue;
-          for (let i = 0; i < existing.lines.length; i++) {
-            const line = existing.lines[i];
+          if (!existing || (existing.type !== 'text' && existing.type !== 'table')) continue;
+          let anyChanged = false;
+          forEachLineMut(existing, (line, set) => {
             const lineSegs = segsByLine.get(line.id);
-            if (!lineSegs) continue;
+            if (!lineSegs) return;
             // 버그 수정: 겹치는/같은 구간을 실수로 다시 드래그해도 하이라이트가
             // 중복 누적되지 않도록, 그냥 추가하는 대신 "새로 칠한 색이 기존 색 위를
             // 덮는다"(paintOverHighlights)로 반영한다.
@@ -499,9 +671,10 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
             for (const s of lineSegs) {
               nextHighlights = paintOverHighlights(nextHighlights, s.start, s.end, color);
             }
-            existing.lines[i] = { ...line, highlights: nextHighlights };
-          }
-          existing.updatedAt = now();
+            set({ ...line, highlights: nextHighlights });
+            anyChanged = true;
+          });
+          if (anyChanged) existing.updatedAt = now();
         }
       }),
 
@@ -509,18 +682,19 @@ export const useObjectsStore = create<ObjectsState>((set, get) => {
       mutate((draft) => {
         for (const [objectId, segsByLine] of groupSegmentsByObjectAndLine(segments)) {
           const existing = draft[objectId];
-          if (!existing || existing.type !== 'text') continue;
-          for (let i = 0; i < existing.lines.length; i++) {
-            const line = existing.lines[i];
+          if (!existing || (existing.type !== 'text' && existing.type !== 'table')) continue;
+          let anyChanged = false;
+          forEachLineMut(existing, (line, set) => {
             const lineSegs = segsByLine.get(line.id);
-            if (!lineSegs) continue;
+            if (!lineSegs) return;
             let nextHighlights = line.highlights ?? [];
             for (const s of lineSegs) {
               nextHighlights = eraseHighlightsInRange(nextHighlights, s.start, s.end);
             }
-            existing.lines[i] = { ...line, highlights: nextHighlights };
-          }
-          existing.updatedAt = now();
+            set({ ...line, highlights: nextHighlights });
+            anyChanged = true;
+          });
+          if (anyChanged) existing.updatedAt = now();
         }
       }),
 

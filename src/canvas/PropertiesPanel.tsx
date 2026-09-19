@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TextObject } from '../types/object';
+import type { ArrowObject, CanvasObject, FrameObject, ShapeObject, TableCell, TableObject, TextObject } from '../types/object';
 import { useInteractionStore } from '../store/interactionStore';
 import { useObjectsStore } from '../store/objectsStore';
 import { useLinkStore } from '../store/linkStore';
@@ -9,6 +9,9 @@ import { useFileTreeStore } from '../storage/fileTreeStore';
 import { useHistoryStore } from '../store/historyStore';
 import { useFontStore } from '../store/fontStore';
 import { useToolStore } from '../store/toolStore';
+import { useTableEditStore } from '../store/tableEditStore';
+import { boundaryOffset, cellsInRange } from '../objects/table/tableGeometry';
+import { DEFAULT_TABLE_TEXT_COLOR, DEFAULT_TABLE_TEXT_FONT_SIZE } from '../objects/table/tableDefaults';
 import { useTextDefaultPresetsStore } from '../store/textDefaultPresetsStore';
 import type { TextDefaultPreset } from '../store/textDefaultPresetsStore';
 import { useTextRangeStore } from '../store/textRangeStore';
@@ -33,13 +36,14 @@ import {
   CornerIcon,
   EraserIcon,
   FillIcon,
+  TableDrawIcon,
   FrameSizeIcon,
   LineStyleIcon,
   RotateIcon,
   StrokeWidthIcon,
   SwapIcon,
 } from '../objects/style/StyleIcons';
-import { CheckIcon, ChevronDownIcon, CloseIcon, PlusIcon } from '../icons/Icons';
+import { CheckIcon, ChevronDownIcon, CloseIcon, PlusIcon, SelectIcon as CursorIcon } from '../icons/Icons';
 import './PropertiesPanel.css';
 
 // FONT_SIZE_PRESETS는 objects/text/fontSizePresets.ts로 옮겼다(canvas/pdf/
@@ -213,6 +217,13 @@ export function PropertiesPanel() {
         </PanelShell>
       );
     }
+    if (object.type === 'table') {
+      return (
+        <PanelShell title="표" onClose={deselect} panelKey={`object:${object.id}`}>
+          <TableSection object={object} update={update} />
+        </PanelShell>
+      );
+    }
     return null;
   }
 
@@ -265,6 +276,13 @@ export function PropertiesPanel() {
         </PanelShell>
       );
     }
+    if (representative.type === 'table') {
+      return (
+        <PanelShell title="표" onClose={deselect} panelKey={`multi:${selectedIds.slice().sort().join(',')}`}>
+          <TableSection object={representative} update={updateAll} />
+        </PanelShell>
+      );
+    }
     return null;
   }
 
@@ -311,6 +329,13 @@ export function PropertiesPanel() {
       return (
         <PanelShell title="프레임" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
           <FrameDefaultsSection />
+        </PanelShell>
+      );
+    }
+    if (activeTool === 'table') {
+      return (
+        <PanelShell title="표" onClose={() => setTool('select')} panelKey={`tool:${activeTool}`}>
+          <TableDefaultsSection />
         </PanelShell>
       );
     }
@@ -1379,6 +1404,190 @@ function RectangleDefaultsSection() {
           max={4}
         />
         <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setShapeStrokeColor} category="shape" />
+      </Row>
+    </>
+  );
+}
+
+/**
+ * 요구사항(표 기능): 선택된 표의 사이드바. 테두리 색/굵기는 사각형과 같은 컨트롤을
+ * 그대로 재사용하고, 그 아래 "편집" 행이 이 표만의 것 — 더블클릭으로 편집 모드에
+ * 들어가야만(objects/table/TableObjectView.tsx) 그리기/지우개/간격 통일을 쓸 수 있다는
+ * 확정 요구사항을 그대로 반영해, 편집 모드가 아니면 안내문만 보여주고 컨트롤 자체를
+ * 숨긴다. "간격 통일" 버튼은 단축키 대신 사이드바 버튼으로 달라는 요구사항(확정) —
+ * 표 안에서 셀 범위를 드래그로 선택해뒀으면(tableEditStore.cellRangeSelection) 그
+ * 범위만, 선택해두지 않았으면 표 전체를 대상으로 행/열 간격을 각각 균등하게 만든다.
+ */
+export function TableSection({
+  object,
+  update,
+}: {
+  object: TableObject;
+  update: (patch: Partial<TableObject> & Record<string, unknown>, coalesceKey?: string) => void;
+}) {
+  const editingTableId = useTableEditStore((s) => s.editingTableId);
+  const subMode = useTableEditStore((s) => s.subMode);
+  const cellRangeSelection = useTableEditStore((s) => s.cellRangeSelection);
+  const setSubMode = useTableEditStore((s) => s.setSubMode);
+  const enterEditMode = useTableEditStore((s) => s.enterEditMode);
+  const isEditing = editingTableId === object.id;
+  // 사이드바의 편집 컨트롤(그리기/지우개/선택 탭, 간격 통일)은 아직 편집 모드가
+  // 아니어도(표를 선택만 한 상태) 항상 보이고 항상 눌러진다 — 누르는 순간 아직
+  // 편집 모드가 아니면 그때 편집 모드로 들어간다.
+  const ensureEditing = () => {
+    if (editingTableId !== object.id) enterEditMode(object.id);
+  };
+  const hasRangeSelection = cellRangeSelection?.tableId === object.id;
+
+  const handleEqualize = () => {
+    const sel = hasRangeSelection ? cellRangeSelection : null;
+    const rowFrom = sel ? Math.min(sel.rowFrom, sel.rowTo) : 0;
+    const rowTo = sel ? Math.max(sel.rowFrom, sel.rowTo) : object.rowSizes.length - 1;
+    const colFrom = sel ? Math.min(sel.colFrom, sel.colTo) : 0;
+    const colTo = sel ? Math.max(sel.colFrom, sel.colTo) : object.colSizes.length - 1;
+    const { equalizeTableRows, equalizeTableCols } = useObjectsStore.getState();
+    equalizeTableRows(object.id, boundaryOffset(object.rowSizes, rowFrom), boundaryOffset(object.rowSizes, rowTo));
+    equalizeTableCols(object.id, boundaryOffset(object.colSizes, colFrom), boundaryOffset(object.colSizes, colTo));
+  };
+
+  // 요구사항(표 텍스트에 글꼴/크기/색상/굵기, 텍스트 메뉴와 같은 로직): 편집 모드
+  // 중 셀 범위를 드래그로 선택해뒀으면(hasRangeSelection) 그 범위의 셀들만, 아니면
+  // "전체 표 선택"으로 간주해 표의 모든 셀에 적용한다 — TextSection의 hasRange 패턴과
+  // 동일한 원칙(구간 있으면 구간만, 없으면 객체 전체). 편집 모드가 아니어도(그냥
+  // 표를 선택만 한 상태) 이 컨트롤 자체는 항상 쓸 수 있다 — 그때는 cellRangeSelection이
+  // 있을 수 없으므로 자연히 표 전체 대상이 된다.
+  const targetCells = hasRangeSelection
+    ? cellsInRange(object.cells, cellRangeSelection.rowFrom, cellRangeSelection.rowTo, cellRangeSelection.colFrom, cellRangeSelection.colTo)
+    : object.cells;
+  // 여러 셀에 걸친 선택이어도 "현재 값" 표시는 첫 번째 대상 셀의 스타일로 단순화한다
+  // (TextSection이 여러 구간의 대표 스타일을 첫 세그먼트 하나로 보여주는 것과 같은 원칙).
+  const representativeCell = targetCells[0];
+  const currentFamily = representativeCell?.fontFamily || DEFAULT_FONT_FAMILY;
+  const currentSize = representativeCell?.fontSize ?? DEFAULT_TABLE_TEXT_FONT_SIZE;
+  const currentColor = representativeCell?.color || DEFAULT_TABLE_TEXT_COLOR;
+  const currentBold = !!representativeCell?.bold;
+  const sizeOptions = FONT_SIZE_PRESETS.includes(currentSize)
+    ? FONT_SIZE_PRESETS
+    : [...FONT_SIZE_PRESETS, currentSize].sort((a, b) => a - b);
+
+  const applyCellStyle = (patch: Partial<Pick<TableCell, 'fontFamily' | 'fontSize' | 'color' | 'bold'>>) => {
+    useObjectsStore.getState().updateTableCellsStyle(object.id, targetCells.map((c) => c.id), patch);
+  };
+
+  return (
+    <>
+      <StrokeWidthRow value={object.strokeWidth} onChange={(strokeWidth) => update({ strokeWidth })} />
+      <Row label="색상">
+        <RecentColorSwatches
+          category="shape"
+          onPick={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
+          activeColor={object.strokeColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
+        <ColorPickerPopover
+          label="테두리 색상"
+          value={object.strokeColor}
+          onChange={(strokeColor) => update({ strokeColor }, `style-color:${object.id}`)}
+          category="shape"
+        />
+      </Row>
+      <FontPickerRow currentFamily={currentFamily} onPick={(family) => applyCellStyle({ fontFamily: family })} />
+      <Row label="크기">
+        <Dropdown
+          value={currentSize}
+          options={sizeOptions}
+          labelOf={(s) => `${s}px`}
+          onChange={(s) => applyCellStyle({ fontSize: s })}
+        />
+      </Row>
+      <Row label="텍스트 색상">
+        <RecentColorSwatches
+          category="text"
+          onPick={(color) => applyCellStyle({ color })}
+          activeColor={currentColor}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
+        <ColorPickerPopover label="텍스트 색상" value={currentColor} onChange={(color) => applyCellStyle({ color })} category="text" />
+      </Row>
+      <Row label="굵기">
+        <Tile active={currentBold} onClick={() => applyCellStyle({ bold: !currentBold })} title="굵게">
+          <BoldIcon />
+        </Tile>
+      </Row>
+      <Row label="편집">
+        <TileGroup>
+          <Tile
+            active={isEditing && subMode === null}
+            onClick={() => {
+              ensureEditing();
+              setSubMode(null);
+            }}
+            title="선택 / 입력"
+          >
+            <CursorIcon size={16} />
+          </Tile>
+          <Tile
+            active={isEditing && subMode === 'draw'}
+            onClick={() => {
+              ensureEditing();
+              setSubMode('draw');
+            }}
+            title="표 그리기"
+          >
+            <TableDrawIcon active={isEditing && subMode === 'draw'} />
+          </Tile>
+          <Tile
+            active={isEditing && subMode === 'erase'}
+            onClick={() => {
+              ensureEditing();
+              setSubMode('erase');
+            }}
+            title="표 지우개"
+          >
+            <EraserIcon active={isEditing && subMode === 'erase'} />
+          </Tile>
+        </TileGroup>
+      </Row>
+      <Row label="간격">
+        <button
+          type="button"
+          className="properties-action-btn"
+          onClick={() => {
+            ensureEditing();
+            handleEqualize();
+          }}
+        >
+          {hasRangeSelection ? '선택 범위 간격 통일' : '표 전체 간격 통일'}
+        </button>
+      </Row>
+    </>
+  );
+}
+
+/** 선택된 표가 없어도(상단 툴바 '표' 버튼만 눌렀을 때) 다음에 만들 표의 기본
+ * 테두리 색/굵기를 미리 정해둔다 — toolStore.tableStrokeColor/tableStrokeWidth를
+ * 직접 읽고 쓴다(canvas/actions.ts:spawnTableAt이 그대로 쓴다). 그리기/지우개/간격
+ * 통일은 아직 만들어진 표가 없어 의미가 없으므로 여기 없다. */
+function TableDefaultsSection() {
+  const strokeColor = useToolStore((s) => s.tableStrokeColor);
+  const strokeWidth = useToolStore((s) => s.tableStrokeWidth);
+  const setTableStrokeColor = useToolStore((s) => s.setTableStrokeColor);
+  const setTableStrokeWidth = useToolStore((s) => s.setTableStrokeWidth);
+
+  return (
+    <>
+      <StrokeWidthRow value={strokeWidth} onChange={setTableStrokeWidth} />
+      <Row label="색상">
+        <RecentColorSwatches
+          category="shape"
+          onPick={setTableStrokeColor}
+          activeColor={strokeColorValueFor(strokeColor)}
+          swatchClassName="properties-round-swatch"
+          max={4}
+        />
+        <ColorPickerPopover label="테두리 색상" value={strokeColorValueFor(strokeColor)} onChange={setTableStrokeColor} category="shape" />
       </Row>
     </>
   );

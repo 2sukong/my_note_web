@@ -237,11 +237,47 @@ export interface ShapeObject extends BaseObject {
   fillOpacity?: number;
 }
 
+/**
+ * 표(Table). HTML table의 rowspan/colspan과 같은 개념의 "세부 격자 + 셀" 모델이다
+ * (objects/table/tableGeometry.ts 참고). rowSizes/colSizes가 세부 행/열 각각의 world
+ * px 크기이고, cells가 그 세부 격자를 빈틈/중복 없이 사각형들로 덮는다. 표 그리기로
+ * 특정 셀만 쪼개도(부분 선) 다른 셀은 원래 span을 그대로 유지하는 방식으로 표현된다.
+ */
+export interface TableCell {
+  id: string;
+  row: number;
+  col: number;
+  rowSpan: number;
+  colSpan: number;
+  lines: TextLine[];
+  /**
+   * 요구사항(표 텍스트에 글꼴/크기/색상/굵기): TextObject와 같은 이름 관례
+   * (fontFamily/color/bold) — 셀 단위로 균일하게 적용된다(TextRun처럼 셀 안
+   * 일부만 다르게 서식을 주는 것은 아직 지원 범위 밖). undefined면
+   * objects/table/tableDefaults.ts의 DEFAULT_TABLE_TEXT_*를 쓴다.
+   */
+  fontFamily?: string;
+  fontSize?: number;
+  color?: string;
+  bold?: boolean;
+}
+
+export interface TableObject extends BaseObject {
+  type: 'table';
+  frameId?: string | null;
+  rowSizes: number[];
+  colSizes: number[];
+  cells: TableCell[];
+  strokeColor: string;
+  strokeWidth: number;
+}
+
 export type CanvasObject =
   | TextObject
   | ImageObject
   | FrameObject
   | ArrowObject
-  | ShapeObject;
+  | ShapeObject
+  | TableObject;
 
 export type CanvasObjectType = CanvasObject['type'];

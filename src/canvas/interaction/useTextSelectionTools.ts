@@ -4,12 +4,32 @@ import { useToolStore } from '../../store/toolStore';
 import { useObjectsStore } from '../../store/objectsStore';
 import { useInteractionStore } from '../../store/interactionStore';
 import { useHighlightDragStore } from '../../store/highlightDragStore';
+import type { SelectionSegment } from '../../objects/text/selectionCapture';
 import {
   captureAnnotationSelection,
   captureSelectionSegments,
   captureWordAtPoint,
   clearNativeSelection,
 } from '../../objects/text/selectionCapture';
+
+/**
+ * 요구사항(표 셀 형광펜/주석은 한 셀 안으로만): TableObject는 모든 셀의 줄이 같은
+ * objectId(tableId)를 공유한다 — captureSelectionSegments는 objectId/lineId만으로
+ * "여러 줄에 걸친 드래그"를 판단하므로, 이 필터가 없으면 드래그가 셀 경계를 넘었을 때
+ * 옆 셀의 줄까지 같은 표 안의 "다음 줄"처럼 취급해 하이라이트/주석이 함께 걸린다.
+ * 드래그를 시작한 첫 세그먼트가 속한 셀만 남기고 나머지 셀의 세그먼트는 버린다 —
+ * TextObject(테이블이 아닌 일반 텍스트)는 cell 개념이 없으므로 항상 그대로 통과한다.
+ */
+function restrictSegmentsToOneTableCell(segments: SelectionSegment[]): SelectionSegment[] {
+  if (segments.length <= 1) return segments;
+  const first = segments[0];
+  const obj = useObjectsStore.getState().objects[first.objectId];
+  if (!obj || obj.type !== 'table') return segments;
+  const cellOf = (lineId: string) => obj.cells.find((c) => c.lines.some((l) => l.id === lineId))?.id;
+  const firstCellId = cellOf(first.lineId);
+  if (!firstCellId) return segments;
+  return segments.filter((s) => cellOf(s.lineId) === firstCellId);
+}
 
 /** 요구사항(형광펜 실시간 드래그): 드래그 중 브라우저 네이티브 파란 선택 음영을
  * 숨기는 CSS 클래스 — Canvas.css에 `.highlight-dragging ::selection`으로 정의됨.
@@ -128,7 +148,7 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
         }
       }
 
-      const segments = captureSelectionSegments();
+      const segments = restrictSegmentsToOneTableCell(captureSelectionSegments());
 
       if (activeTool === 'highlight') {
         if (segments.length === 0) return;
@@ -153,7 +173,10 @@ export function useTextSelectionTools(containerRef: RefObject<HTMLDivElement | n
         const anchor = segments[0] ?? captureWordAtPoint(e.clientX, e.clientY);
         if (!anchor) return;
         const targetObject = useObjectsStore.getState().objects[anchor.objectId];
-        if (!targetObject || targetObject.type !== 'text') return;
+        // 요구사항(표 셀 주석): TextObject뿐 아니라 TableObject의 셀 줄 위에서도
+        // 주석을 만들 수 있어야 한다 — addAnnotation(objectsStore.ts)이 이미
+        // 두 타입 모두 지원하도록 확장돼 있으므로 여기 게이트만 풀어주면 된다.
+        if (!targetObject || (targetObject.type !== 'text' && targetObject.type !== 'table')) return;
 
         // 요구사항 변경(2026-09-15): 클릭은 항상(복사해둔 주석이 있어도) 기존과 동일하게
         // 툴바 기본값의 빈 주석 + 화살표를 만들고 편집 모드로 들어간다 — "클릭하면 바로

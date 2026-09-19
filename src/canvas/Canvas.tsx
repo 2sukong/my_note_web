@@ -21,7 +21,7 @@ import { useUndoRedoShortcut } from './interaction/useUndoRedoShortcut';
 import { useClipboardShortcuts } from './interaction/useClipboardShortcuts';
 import { useGroupShortcut } from './interaction/useGroupShortcut';
 import { clientToWorld, registerCanvasContainer } from '../utils/coords';
-import { spawnFrameAt, spawnImageAt, findFrameAt } from './actions';
+import { spawnFrameAt, spawnImageAt, spawnTableAt, findFrameAt } from './actions';
 import { ObjectView } from '../objects/ObjectView';
 import { SelectionOverlay } from './SelectionOverlay';
 import { MarqueeOverlay } from './MarqueeOverlay';
@@ -198,12 +198,18 @@ export function Canvas() {
   const handleBackgroundClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
     if (e.target !== e.currentTarget) return;
     const { activeTool: tool, setTool } = useToolStore.getState();
-    if (tool !== 'frame' && tool !== 'image') return;
+    if (tool !== 'frame' && tool !== 'image' && tool !== 'table') return;
 
     const world = clientToWorld({ x: e.clientX, y: e.clientY }, useViewportStore.getState());
     if (tool === 'frame') {
       const { frameWidth, frameHeight, frameStyle, frameFoldAxis, frameCenterFold } = useToolStore.getState();
       spawnFrameAt(world.x, world.y, frameWidth, frameHeight, frameStyle, frameFoldAxis, frameCenterFold);
+    } else if (tool === 'table') {
+      // 요구사항(표 만들기): 툴바 '표' 버튼의 격자 피커에서 고른 행/열 수(tableRows/
+      // tableCols)로 클릭한 자리에 표를 만든다 — Frame/Image와 같은 1회용 도구 관례.
+      const { tableRows, tableCols } = useToolStore.getState();
+      const frameId = findFrameAt(world.x, world.y);
+      spawnTableAt(world.x, world.y, tableRows, tableCols, frameId);
     } else useImagePickerStore.getState().requestPicker(world.x, world.y, null);
     setTool('select');
   };

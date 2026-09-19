@@ -97,6 +97,25 @@ export function RectangleToolIcon({ size = 18 }: IconProps) {
   );
 }
 
+export function TableToolIcon({ size = 18 }: IconProps) {
+  // 요구사항(표 아이콘, 3차 피드백): 2행 3열은 맞았지만 헤더와 격자 사이에 남는
+  // 흰 여백이 보기 싫다는 피드백 — 그 여백을 없애고, 격자가 헤더 바로 아래부터
+  // 시작해서 남는 공간을 전부 차지하도록(=격자 자체가 더 커지도록) 바꿨다. 헤더
+  // 높이(3)와 기존 색(currentColor)/굵기(STROKE_WIDTH)는 그대로.
+  return (
+    <svg viewBox="0 0 20 20" width={size} height={size} fill="none">
+      <rect x="3.2" y="4.8" width="13.6" height="10.4" rx="1.2" stroke="currentColor" strokeWidth={STROKE_WIDTH} />
+      <rect x="3.2" y="4.8" width="13.6" height="3" fill="currentColor" />
+      <path
+        d="M3.2 7.8h13.6M3.2 11.5h13.6M7.73 7.8v7.4M12.27 7.8v7.4"
+        stroke="currentColor"
+        strokeWidth={STROKE_WIDTH}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function FolderIcon({ size = 15 }: IconProps) {
   return (
     <svg viewBox="0 0 20 20" width={size} height={size} fill="none">

@@ -1,6 +1,13 @@
-import type { ArrowObject, CanvasObject, FrameObject, ImageObject, ShapeObject, TextObject } from '../types/object';
+import type { ArrowObject, CanvasObject, FrameObject, ImageObject, ShapeObject, TableObject, TextObject } from '../types/object';
 import { createPlainLine } from '../objects/text/indentation/types';
 import { DEFAULT_FRAME_HEIGHT, DEFAULT_FRAME_WIDTH } from '../objects/frame/frameDefaults';
+import {
+  DEFAULT_TABLE_COL_WIDTH,
+  DEFAULT_TABLE_COLS,
+  DEFAULT_TABLE_ROW_HEIGHT,
+  DEFAULT_TABLE_ROWS,
+} from '../objects/table/tableDefaults';
+import { createInitialCells } from '../objects/table/tableGeometry';
 import { registerImageBlob, retainImage } from '../objects/image/imageStore';
 import { computeDiagonal } from '../objects/shapes/shapeGeometry';
 import { strokeColorValueFor } from '../objects/shapes/strokeColors';
@@ -192,6 +199,57 @@ export function spawnFrameAt(
     style,
     centerFold,
     foldAxis,
+  };
+  useObjectsStore.getState().addObject(obj);
+  useInteractionStore.getState().select(id);
+  return id;
+}
+
+/**
+ * 표(Table) 생성: '표 만들기' 격자 피커에서 rows x cols를 고르면 호출된다
+ * (canvas/Toolbar.tsx의 격자 flyout). world 좌표 (worldX, worldY)를 좌상단으로
+ * 하여, rows/cols개의 동일 크기 행/열로 이루어진 표를 만든다 — 각 칸의 기본
+ * 크기는 DEFAULT_TABLE_COL_WIDTH/DEFAULT_TABLE_ROW_HEIGHT(tableDefaults.ts).
+ * 셀 배열은 objects/table/tableGeometry.ts의 createInitialCells가 만든다
+ * (모든 셀이 rowSpan=colSpan=1인 초기 상태 — 아직 그리기/지우개로 아무것도
+ * 합치거나 나누지 않은 표).
+ *
+ * 선/색상은 toolStore의 tableStrokeColor/tableStrokeWidth를 그대로 저장한다
+ * (ShapeObject.strokeColor와 같은 관례 — 원시 id/hex 값을 저장하고 렌더링
+ * 시점에 strokeColorValueFor로 해석한다).
+ *
+ * frameId를 넘기면 그 Frame에 논리적으로 속한 표가 된다(Frame이 이동하면
+ * 같이 따라간다 — objectsStore.hasFrameId/moveObjectTo 참고). 생성 직후
+ * 바로 선택 상태로 두어 resize handle이 곧바로 보이게 한다(편집 모드로는
+ * 들어가지 않음 — 표 그리기/지우개는 더블클릭 등으로 별도 진입).
+ */
+export function spawnTableAt(
+  worldX: number,
+  worldY: number,
+  rows: number = DEFAULT_TABLE_ROWS,
+  cols: number = DEFAULT_TABLE_COLS,
+  frameId: string | null = null,
+): string {
+  const { tableStrokeColor, tableStrokeWidth } = useToolStore.getState();
+  const t = Date.now();
+  const id = crypto.randomUUID();
+  const obj: TableObject = {
+    id,
+    type: 'table',
+    x: worldX,
+    y: worldY,
+    width: cols * DEFAULT_TABLE_COL_WIDTH,
+    height: rows * DEFAULT_TABLE_ROW_HEIGHT,
+    rotation: 0,
+    zIndex: nextZIndex(),
+    createdAt: t,
+    updatedAt: t,
+    frameId,
+    rowSizes: Array.from({ length: rows }, () => DEFAULT_TABLE_ROW_HEIGHT),
+    colSizes: Array.from({ length: cols }, () => DEFAULT_TABLE_COL_WIDTH),
+    cells: createInitialCells(rows, cols),
+    strokeColor: tableStrokeColor,
+    strokeWidth: tableStrokeWidth,
   };
   useObjectsStore.getState().addObject(obj);
   useInteractionStore.getState().select(id);
